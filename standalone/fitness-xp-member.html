@@ -14978,13 +14978,34 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
     return '../03_AI教练/index.html';
   }
 
+  /**
+   * AI 入口卡的「能看多少动作」一句话。
+   * 动作数与各等级数量**全部从 AI 端配置读出来**，不在这里写死数字：
+   * 写死了配置一改文案立刻变成假话，等于在会员端造了第二个真值。
+   * 配置没加载成功时只说最基本的那句，不编数字。
+   */
+  function aiCoachCapLine() {
+    var cfg = aiCfg();
+    if (!cfg || !cfg.RULE_LIST || !cfg.RULE_LIST.length || typeof cfg.getMonitor !== 'function') {
+      return '用摄像头实时看动作姿态。';
+    }
+    var a = 0, b = 0;
+    cfg.RULE_LIST.forEach(function (t) {
+      var lv = (cfg.getMonitor(t) || {}).level;
+      if (lv === 'A') a++; else if (lv === 'B') b++;
+    });
+    return '用摄像头实时看动作姿态，目前支持 ' + cfg.RULE_LIST.length + ' 个动作：'
+      + a + ' 个可完整监测' + (b ? '、' + b + ' 个有限监测' : '') + '。'
+      + '摄像头只读取人体姿态，不识别器械与配重。';
+  }
+
   /** AI 教练入口卡：说清楚它是原型、要摄像头、与本页数据互不干扰 */
   function aiCoachEntryHtml() {
     var href = aiCoachHref();
     if (!href) return '';
     return '<section class="m-card"><div class="m-card-h"><h2>AI 动作教练</h2>'
       + '<span class="m-pill">原型</span></div>'
-      + '<p class="m-p">用摄像头实时看动作姿态，目前只支持<b>徒手深蹲</b>一个动作。</p>'
+      + '<p class="m-p">' + esc(aiCoachCapLine()) + '</p>'
       + '<p class="m-hint">需要摄像头权限，且必须在 <b>https 或 localhost</b> 下打开才能调用摄像头；'
       + '直接双击 file:// 打开时，它会提示无法取流，这是浏览器限制，不是故障。'
       + '它与会员端各存各的数据，来回切换不会互相覆盖。</p>'
