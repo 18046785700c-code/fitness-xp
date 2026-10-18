@@ -39,6 +39,49 @@
   var SOURCE_NOTE = '内置动作库 · 自有文本 · 事实性描述，不涉及第三方编排结构，不含媒体文件';
   var CREATED_AT = '2026-10-16';
 
+  /* ---- 动作 → AI 监测类型键 ----
+   *
+   * 这里**只写"键"，不写等级**。等级 A/B/C 由 AI 教练的统一配置
+   *（03_AI教练/js/aic-config.js 的 getMonitor）现算，动作库页面一律读那份配置展示。
+   * 存键不存等级，是为了让"这个动作到底能监测到什么"只有一处真值：
+   * 以后某个动作从 B 升到 A，只改 AI 配置，动作库不用同步，也不会出现两处文案不一致。
+   *
+   * 只有"人体关键点能稳定观测、且已经写进 AI 配置并跑过测试"的动作才允许出现在这里。
+   * 没有出现的动作一律是空值 → 页面按 C 级（暂不支持监测）展示，不伪造任何能力。
+   */
+  var AI_TYPE = {
+    '深蹲': 'bodyweight_squat',
+    '弓步蹲': 'lunge',
+    '哑铃箭步走': 'lunge',
+    '臀桥': 'glute_bridge',
+    '杠铃臀桥': 'glute_bridge',
+    '弹力带臀桥': 'glute_bridge',
+    '标准俯卧撑': 'push_up',
+    '跪姿俯卧撑': 'push_up',
+    '上斜俯卧撑': 'push_up',
+    '引体向上': 'pull_up',
+    '哑铃卧推': 'bench_press',
+    '杠铃卧推': 'bench_press',
+    '上斜哑铃卧推': 'bench_press',
+    '上斜杠铃卧推': 'bench_press',
+    '史密斯机卧推': 'bench_press',
+    '哑铃肩推': 'shoulder_press',
+    '杠铃肩推': 'shoulder_press',
+    '哑铃弯举': 'bicep_curl',
+    '杠铃弯举': 'bicep_curl',
+    '哑铃划船': 'bent_over_row',
+    '杠铃划船': 'bent_over_row',
+    '单臂哑铃划船': 'bent_over_row',
+    '俯身反向划船': 'bent_over_row',
+    '杠铃硬拉': 'deadlift',
+    '哑铃硬拉': 'deadlift',
+    '壶铃硬拉': 'deadlift',
+    '高位下拉': 'lat_pulldown',
+    '哑铃侧平举': 'lateral_raise',
+    '弹力带侧平举': 'lateral_raise',
+    '卷腹': 'sit_up'
+  };
+
   /* ---- 原始数据（紧凑元组，便于审核）---- */
 
   var RAW = [
@@ -723,6 +766,7 @@
         source: 'self_authored',
         source_note: SOURCE_NOTE,
         media_ref: '',
+        ai_monitor_type: AI_TYPE[name] || '',
         version: 1,
         content_hash: fnv1a(name + steps),
         deprecated: 'N',

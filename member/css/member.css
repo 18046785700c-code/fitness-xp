@@ -762,3 +762,21 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
   .m-form-row { grid-template-columns: 1fr; }
   .m-toast { bottom: 74px; }
 }
+
+/* ---- AI 监测等级徽章与说明 ----
+ * 规则同其他彩色元素：亮色只做浅底 + 深字，只有紫色是实心 + 白字。
+ * A 级（可监测）用绿底深绿字，B 级（有限监测）用黄底深黄字，C 级用灰底灰字 ——
+ * 灰底是刻意的：C 级不该看起来像"功能"，它只是"这一项没有能力"。 */
+.m-aibadge {
+  display: inline-block; font-size: 11px; font-weight: 700;
+  border-radius: 999px; padding: 3px 10px; white-space: nowrap; line-height: 1.5;
+}
+.m-aibadge-A { background: var(--m-green-l); color: var(--m-green-ink); border: 1px solid #B7EBD3; }
+.m-aibadge-B { background: var(--m-yellow-l); color: var(--m-yellow-ink); border: 1px solid #F2DE9C; }
+.m-aibadge-C { background: #F1EFF5; color: #6E6885; border: 1px solid #E3DEEA; }
+
+.m-airow { margin-top: 10px; }
+.m-airow b { display: block; font-size: 13px; margin-bottom: 4px; }
+.m-ailist { margin: 0; padding-left: 18px; font-size: 13px; color: var(--m-sub); }
+.m-ailist li { margin-bottom: 3px; }
+.m-ailist-no li { color: #8A5A00; }

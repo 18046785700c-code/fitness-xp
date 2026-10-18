@@ -48,7 +48,11 @@
     { name: 'ai_text', required: false, type: 'text' },
     { name: 'ai_error', required: false, type: 'text' },
     { name: 'created_at', required: true, type: 'text' },
-    { name: 'data_version', required: true, type: 'int' }
+    { name: 'data_version', required: true, type: 'int' },
+    /* 重量一律由会员手动填写：系统不识别杠铃/哑铃/配重，也不推断重量。
+     * weight_source 只可能是 'manual' 或 'none'，用来在复盘里说清这个数字是谁填的。 */
+    { name: 'weight_kg', required: false, type: 'num_or_null' },
+    { name: 'weight_source', required: false, type: 'enum', values: ['manual', 'none'] }
   ];
 
   function typeOk(v, t) {
@@ -164,7 +168,9 @@
         ai_text: meta.aiText || '',
         ai_error: meta.aiError || '',
         created_at: new Date(now()).toISOString(),
-        data_version: review.dataVersion
+        data_version: review.dataVersion,
+        weight_kg: (typeof meta.weightKg === 'number' && isFinite(meta.weightKg)) ? meta.weightKg : null,
+        weight_source: (typeof meta.weightKg === 'number' && isFinite(meta.weightKg)) ? 'manual' : 'none'
       };
       var c = validateRecord(rec);
       if (!c.ok) return { ok: false, reason: c.reason, message: '本次记录未通过字段校验：' + c.reason };

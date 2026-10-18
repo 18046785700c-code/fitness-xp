@@ -21,13 +21,20 @@
     torso: '躯干姿态'
   };
 
-  /* 每个维度给出"下一步做什么"的具体建议模板，均为规则化文本，不带数值断言 */
+  /* 每个维度给出"下一步做什么"的建议模板。深蹲专属文案作为兜底，
+   * 有 rules.advice 时一律用动作自带的（卧推不该出现"下蹲"字样）。 */
   var NEXT_STEP = {
     depth: '试着在一次练习里把下蹲幅度做得比上次稍深一点，找到能稳定控制的深度后再放慢节奏。',
     tempo: '用心里数数的方式固定下蹲与起身节奏（例如下行 2 秒、起身 2 秒），减少中途停顿。',
     symmetry: '双脚站距与脚尖方向左右对齐，下蹲时留意两侧膝盖是否同步弯曲。',
     torso: '下蹲时保持视线与躯干方向一致，避免躯干过度前倾或角度突变。'
   };
+
+  function nextStepOf(rules, code) {
+    var a = rules && rules.advice;
+    if (a && typeof a[code] === 'string' && a[code]) return a[code];
+    return NEXT_STEP[code] || '';
+  }
 
   /**
    * @param s analyzer.summary() 的输出
@@ -97,7 +104,7 @@
 
     /* ---- 样本不足判定：明确不下结论 ---- */
     if (s.repsTotal === 0) {
-      out.caveat = '本次未识别到完整的徒手深蹲动作，样本不足，不生成动作质量结论。';
+      out.caveat = '本次未识别到完整的「' + (s.exerciseLabel || '目标') + '」动作，样本不足，不生成动作质量结论。';
       out.limitations.push('未完成任何一次可被识别的完整动作，无法评估动作质量。');
       if (s.framesUnreliable > 0) {
         out.limitations.push('有 ' + s.framesUnreliable + ' 帧未能可靠识别人体（合计约 ' +
@@ -129,14 +136,15 @@
 
     /* ---- 下一步建议：来自改进点，最多 3 条 ---- */
     out.nextSteps = out.improvements.map(function (i) {
-      return { code: i.code, text: NEXT_STEP[i.code] || '保持当前节奏继续练习。' };
+      return { code: i.code, text: nextStepOf(rules, i.code) || '保持当前节奏继续练习。' };
     });
 
     /* ---- 局限性：逐条列真实证据 ---- */
     out.limitations.push('本次识别出 ' + s.repsTotal + ' 次动作，其中 ' + s.repsValid +
       ' 次画面置信度满足评分条件，' + s.repsLowConfidence + ' 次因置信度不足未参与评分。');
     if (s.partialCycles > 0) {
-      out.limitations.push('另有 ' + s.partialCycles + ' 次下蹲未达到设定的最低点阈值或时长异常，已按规则不计入次数。');
+      var w = (rules.tempo && rules.tempo.workingLabel) || '动作';
+      out.limitations.push('另有 ' + s.partialCycles + ' 次' + w + '未达到设定的最低点阈值或时长异常，已按规则不计入次数。');
     }
     out.dimensions.forEach(function (d) {
       if (d.unavailableCount > 0) {

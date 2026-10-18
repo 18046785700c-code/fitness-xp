@@ -21,7 +21,7 @@
     KEYPOINTS_HIDDEN:     { level: 'warn',     text: '部分关节不可见，请调整站位' },
     BODY_OUT_OF_FRAME:    { level: 'warn',     text: '请让全身进入画面' },
     VIEW_RECOMMEND:       { level: 'advisory', text: '建议侧对镜头，便于判断深度' },
-    DEPTH_SHORT:          { level: 'advisory', text: '下蹲幅度未达设定范围' },
+    DEPTH_SHORT:          { level: 'advisory', text: '幅度未达设定范围' },
     TEMPO_UNSTABLE:       { level: 'advisory', text: '节奏变化较大，试着保持匀速' },
     TORSO_LEAN:           { level: 'advisory', text: '躯干前倾偏大，注意身体姿态' },
     SYMMETRY_DIFF:        { level: 'advisory', text: '左右表现有差异，注意均衡发力' },

@@ -69,6 +69,25 @@
     <h2>本次设置</h2>
     <div class="grid-2">
       <label class="field">
+        <span class="f-lab">训练动作（请先选择，系统不做自动猜测）</span>
+        <select id="selExercise"></select>
+        <span class="f-tip">
+          先选动作再开始。系统<strong>不会</strong>替你判断正在练什么；未选中的动作不参与计数。
+        </span>
+      </label>
+      <label class="field">
+        <span class="f-lab">本次重量（手动填写，kg）</span>
+        <input type="number" id="inpWeight" min="0" step="0.5" placeholder="自重动作可留空">
+        <span class="f-tip">
+          系统<strong>不能</strong>通过摄像头识别重量：这里填什么就记录什么，留空表示自重。
+        </span>
+      </label>
+    </div>
+
+    <div class="monitor-box" id="monitorBox"></div>
+
+    <div class="grid-2">
+      <label class="field">
         <span class="f-lab">会员标识</span>
         <select id="selMember"><option value="test:local">测试用户（不关联会员）</option></select>
         <span class="f-tip">仅用于给记录打标识。会员名单从教练端本地数据<strong>只读</strong>读取，不回写。</span>
@@ -149,8 +168,10 @@
           <input type="number" id="devReps" value="3" min="1" max="20">
         </label>
         <label class="field inline">
-          <span class="f-lab">最深膝角</span>
-          <input type="number" id="devAngle" value="85" min="60" max="150">
+          <!-- 以前只有深蹲一个动作，写死「最深膝角」+ 60~150；现在 13 个动作的主角度
+               各不相同（肘角/肩角/髋角），范围也到 8~178，标签不能再叫膝角。 -->
+          <span class="f-lab" id="devAngleLab">目标主角度</span>
+          <input type="number" id="devAngle" value="85" min="8" max="178">
         </label>
         <label class="chk"><input type="checkbox" id="devLowVis"> 低置信度</label>
         <button type="button" id="btnDevRun" class="btn mini">跑一遍</button>

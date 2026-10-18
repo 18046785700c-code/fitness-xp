@@ -15,13 +15,26 @@
   var PZ = window.FXP.aicPose;
 
   var LM = C.LM;
-  var rules = C.getRules('bodyweight_squat');
 
-  /* MediaPipe 官方骨架连线（只画本项目用到的） */
+  /* 当前动作。任务书要求：先由训练者明确选择动作，不能靠"自动猜测"分类。
+   * 所有阈值/等级/机位说明都从这一份 rules 里取，页面不另存一套。 */
+  var currentType = (C.RULE_LIST && C.RULE_LIST[0]) || 'bodyweight_squat';
+  var rules = C.getRules(currentType);
+
+  function useExercise(type) {
+    var r = C.getRules(type);
+    if (!r) return false;
+    currentType = type;
+    rules = r;
+    return true;
+  }
+
+  /* MediaPipe 官方骨架连线（躯干 + 下肢 + 上肢，随三大项与手臂动作启用） */
   var CONNECTIONS = [
     [11, 12], [11, 23], [12, 24], [23, 24],
     [23, 25], [25, 27], [24, 26], [26, 28],
-    [27, 31], [28, 32], [27, 29], [28, 30]
+    [27, 31], [28, 32], [27, 29], [28, 30],
+    [11, 13], [13, 15], [12, 14], [14, 16]
   ];
 
   var $ = function (id) { return document.getElementById(id); };
@@ -35,12 +48,14 @@
     stageHint: $('stageHint'), notice: $('camNotice'),
     btnCam: $('btnCam'), btnStart: $('btnStart'), btnEnd: $('btnEnd'), btnStopCam: $('btnStopCam'),
     selMember: $('selMember'), selSound: $('selSound'),
+    selExercise: $('selExercise'), inpWeight: $('inpWeight'), monitorBox: $('monitorBox'),
     inpEndpoint: $('inpEndpoint'), inpModel: $('inpModel'), chkAI: $('chkAI'),
     btnSaveAI: $('btnSaveAI'), aiState: $('aiState'),
     cardReview: $('cardReview'), reviewBody: $('reviewBody'), aiBlock: $('aiBlock'),
     btnAIReview: $('btnAIReview'), btnSaveRecord: $('btnSaveRecord'),
     recordsBody: $('recordsBody'), btnExport: $('btnExport'), btnClear: $('btnClear'),
-    devOut: $('devOut'), btnDevRun: $('btnDevRun'), devReps: $('devReps'), devAngle: $('devAngle'), devLowVis: $('devLowVis'),
+    devOut: $('devOut'), btnDevRun: $('btnDevRun'), devReps: $('devReps'), devAngle: $('devAngle'),
+    devAngleLab: $('devAngleLab'), devLowVis: $('devLowVis'),
     disclaimer: $('disclaimer')
   };
 
@@ -72,6 +87,8 @@
       '<br>本页数据与教练端仪表盘<strong>相互独立、不会自动同步</strong>；AI 复盘需要你自己的服务端代理，' +
       '未配置时显示「AI 复盘尚未启用」。';
 
+    renderExercises();
+    renderMonitor();
     renderMembers();
     renderAIState();
     renderRecords();
@@ -95,6 +112,7 @@
   }
 
   function bindEvents() {
+    if (els.selExercise) els.selExercise.addEventListener('change', onChangeExercise);
     els.btnCam.addEventListener('click', startCamera);
     els.btnStopCam.addEventListener('click', stopCamera);
     els.btnStart.addEventListener('click', startSession);
@@ -319,14 +337,18 @@
 
   /* ==================== 渲染 ==================== */
 
+  /** 阶段名按当前动作取：卧推不再显示"下蹲中" */
   function phaseLabel(p) {
-    return { unknown: '待识别', standing: '站立', descending: '下蹲中', bottom: '最低点', ascending: '起身' }[p] || p;
+    if (p === 'unknown') return '待识别';
+    var m = (rules && rules.phaseLabels) || {};
+    return m[p] || p;
   }
 
   function bodyInFrame(lm) {
-    // 允许 6% 边距；任一侧髋/膝/踝越界即视为未完整入框
+    // 允许 6% 边距；检查范围取当前动作的必看点（上肢动作不要求脚踝入框）
     var m = 0.04;
-    var need = [LM.LEFT_HIP, LM.RIGHT_HIP, LM.LEFT_KNEE, LM.RIGHT_KNEE, LM.LEFT_ANKLE, LM.RIGHT_ANKLE];
+    var need = (rules && rules.required && rules.required.core) ||
+      [LM.LEFT_HIP, LM.RIGHT_HIP, LM.LEFT_KNEE, LM.RIGHT_KNEE, LM.LEFT_ANKLE, LM.RIGHT_ANKLE];
     for (var i = 0; i < need.length; i++) {
       var p = lm[need[i]];
       if (!p) return null;
@@ -483,6 +505,95 @@
     });
   }
 
+  /* ==================== 动作选择与监测能力说明 ==================== */
+
+  function renderExercises() {
+    if (!els.selExercise) return;
+    var list = C.RULE_LIST || Object.keys(C.RULES);
+    var h = '';
+    list.forEach(function (t) {
+      var r = C.RULES[t];
+      if (!r) return;
+      var lv = (r.monitor && r.monitor.level) || 'C';
+      h += '<option value="' + esc(t) + '"' + (t === currentType ? ' selected' : '') + '>'
+        + esc(r.exerciseLabel) + '（' + lv + ' 级：' + C.LEVEL_TEXT[lv] + '）</option>';
+    });
+    els.selExercise.innerHTML = h;
+    /* 未配置的动作一律不出现在菜单里 —— 不在菜单 = 不宣称支持 */
+    var extra = Object.keys(C.RULES).filter(function (t) { return list.indexOf(t) < 0; });
+    extra.forEach(function (t) {
+      var r = C.RULES[t];
+      els.selExercise.appendChild((function () {
+        var o = document.createElement('option');
+        o.value = t; o.textContent = r.exerciseLabel;
+        return o;
+      })());
+    });
+  }
+
+  /** 监测能力说明：等级 / 机位 / 必须可见 / 能算什么 / 明确不算什么 / 限制 */
+  function renderMonitor() {
+    if (!els.monitorBox) return;
+    var m = C.getMonitor(currentType);
+    var lv = m.level;
+    var h = ''
+      + '<div class="mon-head">'
+      + '<span class="mon-level ' + lv + '">' + lv + ' 级 · ' + esc(C.LEVEL_TEXT[lv]) + '</span>'
+      + '<span class="mon-title">' + esc(rules ? rules.exerciseLabel : currentType) + '</span>'
+      + '</div>'
+      + '<div class="mon-note">' + esc(C.LEVEL_NOTE[lv]) + '</div>'
+      + '<div class="mon-rows">';
+    if (m.view) h += '<div><b>建议机位：</b>' + esc(m.view) + '</div>';
+    if (m.mustVisible && m.mustVisible.length) {
+      h += '<div><b>必须可见：</b>' + esc(m.mustVisible.join('、')) + '</div>';
+    }
+    h += '<div><b>本动作可以算出：</b></div><ul class="mon-list">'
+      + (m.measurable || []).map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('')
+      + '</ul>';
+    h += '<div><b>明确不算（不会给出结论）：</b></div><ul class="mon-list">'
+      + (m.notMeasurable || []).map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('')
+      + '</ul>';
+    if (m.limitations && m.limitations.length) {
+      h += '<div><b>已知限制：</b></div><ul class="mon-list">'
+        + m.limitations.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('')
+        + '</ul>';
+    }
+    if (m.notes) h += '<div class="mon-note">' + esc(m.notes) + '</div>';
+    h += '</div>';
+    els.monitorBox.innerHTML = h;
+    syncDevAngleField();
+  }
+
+  /* 合成数据的目标角度输入框要跟着动作走：主角度从膝角变成肘角/肩角/髋角，
+   * 标签和默认值都变了。不改的话，切到臀桥还让用户填「最深膝角 85°」，
+   * 跑出来 0 次 —— 用户会以为是算法不认这个动作。 */
+  function syncDevAngleField() {
+    if (!els.devAngle) return;
+    var isMax = !!(rules && rules.depth && rules.depth.mode === 'max');
+    var label = (rules && rules.metric && rules.metric.label) || '主角度';
+    if (els.devAngleLab) els.devAngleLab.textContent = '目标' + label;
+    /* 默认给一个"刚好到位"的角度：两种口径的到位端都在 bottomEnterAngle 那一侧 */
+    var p = (rules && rules.phase) || {};
+    var def = isMax
+      ? Math.min(178, (p.bottomEnterAngle || 90) + 8)
+      : Math.max(8, (p.bottomEnterAngle || 95) - 8);
+    els.devAngle.value = String(Math.round(def));
+  }
+
+  function onChangeExercise() {
+    if (app.training) {
+      /* 训练中换动作会让已计数的那一段失去规则归属，直接拒绝并回显原值 */
+      els.selExercise.value = currentType;
+      setNotice('warn', '训练进行中不能切换动作。请先结束训练，再切换。');
+      return;
+    }
+    if (useExercise(els.selExercise.value)) {
+      renderMonitor();
+      setNotice('info', '已切换到「' + rules.exerciseLabel + '」，规则版本 ' + rules.ruleVersion + '。'
+        + (rules.monitor && rules.monitor.view ? ' 建议机位：' + rules.monitor.view : ''));
+    }
+  }
+
   /* ==================== AI 复盘 ==================== */
 
   function renderAIState() {
@@ -543,6 +654,14 @@
 
   /* ==================== 记录 ==================== */
 
+  /** 读取手填重量：非法/留空一律返回 null（记为自重），绝不猜一个值 */
+  function readWeightKg() {
+    if (!els.inpWeight) return null;
+    var v = parseFloat(els.inpWeight.value);
+    if (!isFinite(v) || v < 0) return null;
+    return Math.round(v * 10) / 10;
+  }
+
   function saveRecord() {
     if (!app.lastReview) return;
     var aiStatus = !app.aiResult ? 'disabled' : (app.aiResult.ok ? 'done' : (app.aiResult.status || 'failed'));
@@ -552,7 +671,9 @@
       aiText: (app.aiResult && app.aiResult.ok && app.aiResult.text) ? (app.aiResult.text.summary || '') : '',
       aiError: (app.aiResult && !app.aiResult.ok) ? (app.aiResult.reason || '') : '',
       startTs: app.sessionStart, endTs: app.sessionEnd,
-      feedbackSummary: app.feedbackLog.slice(-20)
+      feedbackSummary: app.feedbackLog.slice(-20),
+      /* 重量是会员手填的，不是识别出来的：留空就是自重 */
+      weightKg: readWeightKg()
     });
     if (r.ok) {
       app.saved = true;
@@ -639,51 +760,80 @@
   /* ==================== 合成数据（仅开发验证） ==================== */
 
   /**
-   * 构造一段虚拟关键点序列：站立 → 下蹲到 targetAngle → 起身，重复 reps 次。
+   * 构造一段虚拟关键点序列：起始位 → 做到 targetAngle → 回起始位，重复 reps 次。
+   * 方向由当前动作口径决定：min 口径往角度小的方向做（深蹲/卧推），
+   * max 口径往角度大的方向做（臀桥顶髋/侧平举抬起）。
    * 明确用于在没有摄像头时验证算法；不代表真实识别效果。
    */
-  function synthFrames(reps, bottomAngle, lowVis) {
+  function synthFrames(reps, targetAngle, lowVis) {
     var frames = [];
     var t = 0;
     var visibility = lowVis ? 0.25 : 0.92;
-    frames.push(mk(172, t += 60, visibility));
+    var up = (rules.depth && rules.depth.mode === 'max');
+    /* 起始位在"不做功"的一端：min 口径是角度大的一侧，max 口径是角度小的一侧 */
+    var top = up ? Math.max(8, (rules.phase.standAngle || 152) - 18)
+                 : Math.min(178, (rules.phase.standAngle || 152) + 18);
+    function ramp(from, to, step) {                 // 含端点的等差序列，方向自适应
+      var out = [], a;
+      if (to >= from) { for (a = from; a <= to; a += step) out.push(a); }
+      else { for (a = from; a >= to; a -= step) out.push(a); }
+      return out;
+    }
+    /* 采样步长 3°/帧、60ms/帧、底部停 4 帧——刻意对齐 tests/aic-rules-test.js 的口径。
+     * 早前这里用 8°/帧，结果 13 个动作里有 6 个在合成数据下计 0 次：不是规则坏了，
+     * 是采样太稀。角度走 EMA 平滑（alpha≈0.45）后有滞后，每帧跨度过大时平滑值
+     * 根本没越过阈值。页面是给人看的，点「跑一遍」出 0 次会让人以为动作没接进去，
+     * 所以两边必须同口径。 */
+    frames.push(mk(top, t += 60, visibility));
     for (var i = 0; i < reps; i++) {
-      for (var a = 172; a >= bottomAngle; a -= 8) frames.push(mk(a, t += 60, visibility));
-      frames.push(mk(bottomAngle, t += 120, visibility));
-      for (var b = bottomAngle; b <= 172; b += 8) frames.push(mk(b, t += 60, visibility));
-      frames.push(mk(172, t += 120, visibility));
+      ramp(top, targetAngle, 3).forEach(function (a) { frames.push(mk(a, t += 60, visibility)); });
+      for (var k = 0; k < 4; k++) frames.push(mk(targetAngle, t += 60, visibility));   // 底部停留
+      ramp(targetAngle, top, 3).forEach(function (b) { frames.push(mk(b, t += 60, visibility)); });
+      for (var k2 = 0; k2 < 2; k2++) frames.push(mk(top, t += 60, visibility));
     }
     return frames;
   }
 
-  /* 几何模型：髋-膝、膝-踝等长 L，膝关节内角为 kneeDeg。
-   * 由余弦定理：髋踝距 D = 2L·sin(kneeDeg/2)；膝位于髋踝连线中点的垂线方向，
-   * 偏移 h = sqrt(L² - (D/2)²)。按此构造可保证 angleAt(髋,膝,踝) 精确等于目标角度。 */
-  var ANKLE = { x: 0.5, y: 0.75 }, LIMB = 0.16;
+  /* 几何模型（对每个动作都成立）：
+   *   取当前动作的主角度三点 (A, B, C)，角在 B 处。
+   *   令 B→C 竖直向下、|B→C| = L；A 相对 B 的方向为 (sinθ, cosθ)·L，
+   *   则 angleAt(A, B, C) 精确等于 θ（θ=180 时三点成一条竖直线）。
+   * 深蹲是(髋,膝,踝)、卧推/弯举是(肩,肘,腕)、硬拉/臀桥是(肩,髋,膝)、侧平举是(髋,肩,肘)，
+   * 都按同一套几何构造——合成数据因此不再绑定某一个动作。 */
+  var LIMB = 0.16;
 
-  function mk(kneeDeg, tMs, visibility) {
-    var rad = kneeDeg * Math.PI / 180;
-    var D = 2 * LIMB * Math.sin(rad / 2);
-    var h = Math.sqrt(Math.max(0, LIMB * LIMB - (D / 2) * (D / 2)));
-    var ax = ANKLE.x, ay = ANKLE.y;
-    var hy = ay - D;                       // 髋在踝正上方距离 D 处
-    var kx = ax + h, ky = ay - D / 2;      // 膝向前（+x）偏移
+  function mk(deg, tMs, visibility) {
+    var rad = deg * Math.PI / 180;
+    var mj = (rules.metric && rules.metric.joints) || { left: [23, 25, 27], right: [24, 26, 28] };
+    var bx = 0.5, by = 0.55;
+    var cx = bx, cy = by + LIMB;                                   // C 在 B 正下方
+    var axp = bx + LIMB * Math.sin(rad), ayp = by + LIMB * Math.cos(rad);
 
     var lm = [];
     for (var i = 0; i < 33; i++) lm.push({ x: 0.5, y: 0.5, z: 0, visibility: 0 });
     function set(i, x, y) { lm[i] = { x: x, y: y, z: 0, visibility: visibility }; }
-    // 左右各平移 ±0.02，使两侧三角形全等（便于构造对称性基线为 0 的样本）
-    set(LM.LEFT_HIP, ax - 0.02, hy);   set(LM.RIGHT_HIP, ax + 0.02, hy);
-    set(LM.LEFT_KNEE, kx - 0.02, ky);  set(LM.RIGHT_KNEE, kx + 0.02, ky);
-    set(LM.LEFT_ANKLE, ax - 0.02, ay); set(LM.RIGHT_ANKLE, ax + 0.02, ay);
-    set(LM.LEFT_SHOULDER, ax - 0.03, hy - 0.18); set(LM.RIGHT_SHOULDER, ax + 0.03, hy - 0.18);
-    set(LM.NOSE, ax, hy - 0.24);
+    // 左右各平移 ±0.02，使两侧三角形全等（对称性基线为 0 的样本）
+    set(mj.left[0], axp - 0.02, ayp);  set(mj.right[0], axp + 0.02, ayp);
+    set(mj.left[1], bx - 0.02, by);    set(mj.right[1], bx + 0.02, by);
+    set(mj.left[2], cx - 0.02, cy);    set(mj.right[2], cx + 0.02, cy);
+
+    // 躯干两点若不在主角度里，补一组：肩窄、躯干长 → 侧面视角（与深蹲口径一致）
+    if (lm[LM.LEFT_SHOULDER].visibility === 0) {
+      var hy = lm[LM.LEFT_HIP].visibility === 0 ? by - 0.1 : lm[LM.LEFT_HIP].y;
+      set(LM.LEFT_SHOULDER, bx - 0.03, hy - 0.18); set(LM.RIGHT_SHOULDER, bx + 0.03, hy - 0.18);
+    }
+    if (lm[LM.LEFT_HIP].visibility === 0) {
+      set(LM.LEFT_HIP, bx - 0.02, lm[LM.LEFT_SHOULDER].y + 0.18);
+      set(LM.RIGHT_HIP, bx + 0.02, lm[LM.RIGHT_SHOULDER].y + 0.18);
+    }
+    if (lm[LM.NOSE].visibility === 0) set(LM.NOSE, bx, lm[LM.LEFT_SHOULDER].y - 0.06);
     return { tMs: tMs, landmarks: lm };
   }
 
   function runSynthetic() {
     var reps = Math.max(1, Math.min(20, parseInt(els.devReps.value, 10) || 3));
-    var angle = Math.max(60, Math.min(150, parseInt(els.devAngle.value, 10) || 85));
+    var isMax = !!(rules.depth && rules.depth.mode === 'max');
+    var angle = Math.max(20, Math.min(178, parseInt(els.devAngle.value, 10) || (isMax ? 165 : 85)));
     var lowVis = els.devLowVis.checked;
     var frames = synthFrames(reps, angle, lowVis);
 
@@ -694,7 +844,9 @@
     var review = RV.buildReview(s, rules);
 
     var lines = [];
-    lines.push('【合成数据】' + reps + ' 次，目标最低膝角 ' + angle + '°，低置信度=' + (lowVis ? '是' : '否'));
+    var mlab = (rules.metric && rules.metric.label) || '主角度';
+    lines.push('【合成数据】' + rules.exerciseLabel + ' · ' + reps + ' 次，目标' +
+      (isMax ? '最大' : '最小') + mlab + ' ' + angle + '°，低置信度=' + (lowVis ? '是' : '否'));
     lines.push('识别次数 ' + review.counts.repsTotal + ' / 有效 ' + review.counts.repsValid +
       ' / 置信度不足 ' + review.counts.repsLowConfidence + ' / 未完成 ' + review.counts.partialCycles);
     lines.push('识别成功率 ' + Math.round(review.detection.rate * 100) + '%　平均质量 ' +
@@ -712,7 +864,16 @@
   /* ==================== 对外测试钩子 ==================== */
   window.FXPAICoach = {
     app: app,
+    /* rules 是随时间切换的：E2E 要读当前规则请用 getCurrent()，别抓这个快照 */
     rules: rules,
+    getCurrent: function () { return { type: currentType, rules: rules }; },
+    setExercise: function (t) {
+      var ok = useExercise(t);
+      if (ok) { if (els.selExercise) els.selExercise.value = t; renderMonitor(); }
+      return ok;
+    },
+    listExercises: function () { return (C.RULE_LIST || Object.keys(C.RULES)).slice(); },
+    monitorOf: function (t) { return C.getMonitor(t); },
     startSession: startSession,
     endSession: endSession,
     stopCamera: stopCamera,

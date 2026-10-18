@@ -224,3 +224,21 @@ code { background: #F1F5F9; padding: 1px 5px; border-radius: 4px; font-size: 12p
   .btn { flex: 1 1 46%; }
   .stage-controls .btn { flex: 1 1 calc(50% - 4px); }
 }
+
+/* ---------- 动作监测能力说明（等级 / 机位 / 能算什么 / 明确不算什么） ---------- */
+.monitor-box {
+  margin-top: 10px; border: 1px solid var(--border); border-radius: 10px;
+  background: #F8FAFC; padding: 12px;
+}
+.monitor-box[hidden] { display: none; }
+.mon-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.mon-level { font-size: 12px; padding: 2px 8px; border-radius: 999px; font-weight: 600; }
+.mon-level.A { background: #DCFCE7; color: #15803D; }
+.mon-level.B { background: #FEF3C7; color: #B45309; }
+.mon-level.C { background: #F1F5F9; color: #475569; }
+.mon-title { font-size: 14px; font-weight: 600; }
+.mon-note { font-size: 12px; color: var(--text-2); }
+.mon-rows { font-size: 12px; line-height: 1.7; }
+.mon-rows div { margin-top: 4px; }
+.mon-rows b { font-weight: 600; }
+.mon-list { margin: 2px 0 0; padding-left: 18px; font-size: 12px; color: var(--text-2); line-height: 1.7; }

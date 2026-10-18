@@ -106,6 +106,14 @@
         E('source', ['gym_owned', 'self_authored', 'custom', 'cc_licensed', 'public_domain'], 1, '内容来源'),
         T('source_note', 200, 0, '出处与授权说明'),
         T('media_ref', 200, 0, '媒体引用'),
+        /* ai_monitor_type（追加列，选填）：
+         * 只存"AI 教练统一配置里的动作键"（如 bodyweight_squat / bench_press），
+         * **不存等级**。等级 A/B/C 一律由 AI 配置的 getMonitor() 现算，
+         * 这样"等级"只有一处真值（03_AI教练/js/aic-config.js），动作库页面不得自行硬编码。
+         * 空字符串 = 该动作未接入摄像头监测（页面按 C 级展示）。
+         * 为什么是选填：既有存量快照里的 m_exercises 行没有这一列，
+         * 设为必填会让全部老记录在读取时校验失败，属于破坏性升级。 */
+        T('ai_monitor_type', 40, 0, 'AI监测动作键'),
         I('version', 1, [1, 999], '内容版本'),
         T('content_hash', 64, 1, '内容哈希'),
         B('deprecated', 0, '停用标记'),

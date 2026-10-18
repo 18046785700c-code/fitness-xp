@@ -64,9 +64,18 @@
     return s / idxs.length;
   }
 
-  /** 一侧膝屈角：髋-膝-踝 */
+  /** 一侧膝屈角：髋-膝-踝（保留原函数，语义上等价于 metric.code==='knee'） */
   function kneeAngle(lm, hip, knee, ankle) {
     return angleAt(lm[hip], lm[knee], lm[ankle]);
+  }
+
+  /**
+   * 按动作配置取一侧主角度。
+   * 主角度取自 rules.metric.joints（三个关键点索引），不同动作可以是膝/髋/肘/肩臂夹角，
+   * 分析器因此不再绑定任何具体关节——新增动作只需加配置，不改算法。
+   */
+  function metricAngle(lm, triple) {
+    return angleAt(lm[triple[0]], lm[triple[1]], lm[triple[2]]);
   }
 
   /** 躯干相对竖直方向的前倾角（以髋中点→肩中点方向计算；正面视角下无意义） */
@@ -120,19 +129,23 @@
     var LM = getLM(rules);
     var lm = frame && frame.landmarks;
     if (!lm) {
-      return { reliable: false, reason: 'no_person', kneeLeft: null, kneeRight: null, kneeAvg: null,
+      return { reliable: false, reason: 'no_person', mLeft: null, mRight: null, mAvg: null,
+               kneeLeft: null, kneeRight: null, kneeAvg: null,
                view: 'unknown', visibility: 0, missing: ['all'], lean: null };
     }
     var coreVis = minVis(lm, rules.required.core);
     var missing = [];
+    /* 主角度的两侧关键点来自动作配置，不再写死髋膝踝 */
+    var metric = rules.metric || { code: 'knee', joints: { left: [LM.LEFT_HIP, LM.LEFT_KNEE, LM.LEFT_ANKLE],
+                                                           right: [LM.RIGHT_HIP, LM.RIGHT_KNEE, LM.RIGHT_ANKLE] } };
     var sides = [
-      { idx: [LM.LEFT_HIP, LM.LEFT_KNEE, LM.LEFT_ANKLE], name: 'left' },
-      { idx: [LM.RIGHT_HIP, LM.RIGHT_KNEE, LM.RIGHT_ANKLE], name: 'right' }
+      { idx: metric.joints.left, name: 'left' },
+      { idx: metric.joints.right, name: 'right' }
     ];
     var res = sides.map(function (s) {
       var m = minVis(lm, s.idx);
       if (m < rules.minJointVisibility) { missing.push(s.name); return { v: m, a: null }; }
-      return { v: m, a: kneeAngle(lm, s.idx[0], s.idx[1], s.idx[2]) };
+      return { v: m, a: metricAngle(lm, s.idx) };
     });
 
     /* 只要有一侧完整可见就继续分析（降级为单侧），而不是整帧判废；
@@ -142,14 +155,20 @@
     var canSeeTorso = minVis(lm, rules.required.torso) >= rules.view.minVisibility;
     var lean = canSeeTorso ? torsoLeanDeg(lm) : null;
 
+    var mL = res[0].a, mR = res[1].a;
+    var mAvg = (mL !== null && mR !== null) ? (mL + mR) / 2 : (mL !== null ? mL : mR);
+    /* kneeLeft/kneeRight/kneeAvg 是历史字段名：只有主角度真的是膝屈角时才给同值别名，
+     * 免得肘角/髋角被错叫成膝角。老代码与老测试仍然可用。 */
+    var isKnee = metric.code === 'knee';
     return {
       reliable: anySide,
       reason: anySide ? '' : (coreVis < rules.minJointVisibility ? 'low_visibility' : 'no_joint'),
-      kneeLeft: res[0].a,
-      kneeRight: res[1].a,
-      kneeAvg: (res[0].a !== null && res[1].a !== null)
-        ? (res[0].a + res[1].a) / 2
-        : (res[0].a !== null ? res[0].a : res[1].a),
+      mLeft: mL,
+      mRight: mR,
+      mAvg: mAvg,
+      kneeLeft: isKnee ? mL : null,
+      kneeRight: isKnee ? mR : null,
+      kneeAvg: isKnee ? mAvg : null,
       view: estimateView(lm, rules),
       visibility: bestVis,
       missing: missing,
@@ -166,28 +185,51 @@
     return dim(code, label, null, 'unavailable', reason, []);
   }
 
+  /**
+   * 幅度维度。取哪个值由规则决定：
+   *   mode='min'（默认）取本次主角度的最小值——角度越小代表屈曲越充分（深蹲/弯举/卧推下放）
+   *   mode='max' 取本次主角度的最大值——角度越大代表展开越充分（臀桥顶髋/侧平举抬起）
+   * 兜底：老记录/老测试只有 minKneeAngle 时仍按最小值口径处理。
+   */
+  function depthValue(rep, rules) {
+    var mode = (rules.depth && rules.depth.mode) || 'min';
+    if (mode === 'max') {
+      if (typeof rep.maxMetric === 'number') return { v: rep.maxMetric, mode: mode };
+      return { v: rep.minKneeAngle, mode: mode };
+    }
+    if (typeof rep.minMetric === 'number') return { v: rep.minMetric, mode: mode };
+    return { v: rep.minKneeAngle, mode: mode };
+  }
+
   function scoreDepth(rep, rules) {
     var levels = rules.depth.levels;
+    var got = depthValue(rep, rules);
+    var v = got.v;
+    var isMax = got.mode === 'max';
+    var label = isMax ? (rules.metric && rules.metric.maxLabel) || '最大角度'
+                      : (rules.metric && rules.metric.minLabel) || '最小角度';
+    var hit = null;
     for (var i = 0; i < levels.length; i++) {
-      if (rep.minKneeAngle <= levels[i].maxAngle) {
-        return dim('depth', '动作幅度', levels[i].score, levels[i].level,
-          levels[i].label,
-          [{ key: '最小膝屈角', value: round1(rep.minKneeAngle) + '°', rule: '≤ ' + levels[i].maxAngle + '°' }]);
-      }
+      var okLevel = isMax ? (v >= levels[i].angle) : (v <= levels[i].angle);
+      if (okLevel) { hit = levels[i]; break; }
     }
-    var last = levels[levels.length - 1];
-    return dim('depth', '动作幅度', last.score, last.level, last.label,
-      [{ key: '最小膝屈角', value: round1(rep.minKneeAngle) + '°', rule: '≤ ' + last.maxAngle + '°' }]);
+    if (!hit) {
+      hit = isMax ? levels[levels.length - 1] : levels[levels.length - 1];
+    }
+    return dim('depth', '动作幅度', hit.score, hit.level, hit.label,
+      [{ key: label, value: round1(v) + '°', rule: (isMax ? '≥ ' : '≤ ') + hit.angle + '°' }]);
   }
 
   function scoreTempo(rep, rules) {
     var t = rules.tempo;
-    var ev = [{ key: '下蹲时长', value: Math.round(rep.descendMs) + ' ms', rule: t.minDescendMs + '~' + t.maxDescendMs + ' ms' },
-              { key: '下行回弹次数', value: String(rep.reversals), rule: '≤ ' + t.maxReversals }];
-    if (rep.descendMs < t.minDescendMs) return dim('tempo', '动作节奏', 55, 'partial', '下蹲过快，过程可能不够受控', ev);
-    if (rep.descendMs > t.maxDescendMs) return dim('tempo', '动作节奏', 60, 'partial', '下蹲过慢或中途停顿较久', ev);
-    if (rep.reversals > t.maxReversals) return dim('tempo', '动作节奏', 55, 'partial', '下行过程存在明显起伏', ev);
-    return dim('tempo', '动作节奏', 100, 'good', '下蹲过程连续、节奏在设定范围内', ev);
+    var w = t.workingLabel || '下放';
+    var ev = [{ key: t.descendLabel || '下放时长', value: Math.round(rep.descendMs) + ' ms',
+                rule: t.minDescendMs + '~' + t.maxDescendMs + ' ms' },
+              { key: '过程回弹次数', value: String(rep.reversals), rule: '≤ ' + t.maxReversals }];
+    if (rep.descendMs < t.minDescendMs) return dim('tempo', '动作节奏', 55, 'partial', w + '过快，过程可能不够受控', ev);
+    if (rep.descendMs > t.maxDescendMs) return dim('tempo', '动作节奏', 60, 'partial', w + '过慢或中途停顿较久', ev);
+    if (rep.reversals > t.maxReversals) return dim('tempo', '动作节奏', 55, 'partial', w + '过程存在明显起伏', ev);
+    return dim('tempo', '动作节奏', 100, 'good', w + '过程连续、节奏在设定范围内', ev);
   }
 
   function scoreSymmetry(rep, rules) {
@@ -204,6 +246,10 @@
   }
 
   function scoreTorso(rep, rules) {
+    /* 该动作本身不评估躯干（卧推/弯举/俯卧撑这类）→ 明确标记不适用，不参与权重 */
+    if (!rules.torso.evaluableViews.length) {
+      return unavailable('torso', '躯干姿态', rules.torso.offReason || '该动作不评估躯干姿态');
+    }
     if (rules.torso.evaluableViews.indexOf(rep.viewMode) < 0) {
       return unavailable('torso', '躯干姿态',
         '当前为' + viewLabel(rep.viewMode) + '视角，不足以判断躯干前倾，本次标记为无法评估');
@@ -261,6 +307,13 @@
 
     var ph = R.phase;
 
+    /* 方向镜像：状态机 originally 按"越屈越深"的 min 口径写的（角度越小 = 做得越充分）。
+     * max 口径的动作（臀桥顶髋、侧平举抬起）恰好相反：角度越大做得越充分。
+     * 与其复制一套反向状态机，不如把角度轴整体取反——所有不等号方向一致地翻转，
+     * min 口径下 MIR=1 等价于原逻辑（历史行为零变化）。 */
+    var MIR = (R.depth && R.depth.mode === 'max') ? -1 : 1;
+    function mv(x) { return (x === null || x === undefined) ? null : x * MIR; }
+
     var st = {
       phase: 'unknown',
       pendingPhase: null,
@@ -277,6 +330,12 @@
       framesUnreliable: 0,
       lowConfidenceMs: 0,
       cur: null,               // 进行中的一次动作
+      /* armed：是否允许开新的一次动作。
+       * 只有画面真正出现过"起始位"（min 口径下主角度 ≥ standAngle，max 口径下 ≤）才武装。
+       * 没有这道闸门时：① 一次超时/作废之后人还停在底部，会立刻再开一次并白捡一个计数；
+       * ② 开摄像头时人正好停在做功最深处（比如蹲在底部），站起来也会被算成一次。
+       * 初始为 false，即"必须先看到起始位才计数"。 */
+      armed: false,
       viewMode: 'unknown',
       viewSamples: {},
       visibilitySum: 0,
@@ -287,7 +346,8 @@
       st.cur = {
         index: st.reps.length + st.partialCycles + 1,
         startTs: ts, endTs: null, bottomTs: null, bottomReached: false,
-        minKneeAngle: 999, maxSideDiffDeg: 0, symmetrySamples: 0,
+        minKneeAngle: 999, minMetric: 999, maxMetric: -999,
+        maxSideDiffDeg: 0, symmetrySamples: 0,
         reversals: 0, descendMs: 0, frames: 0,
         prevKnee: null, descentStartTs: ts,
         maxLeanDeg: 0, minLeanDeg: 999, leanChangeDeg: 0, leanSamples: 0,
@@ -301,6 +361,7 @@
       st.phase = 'unknown';
       st.pendingPhase = null;
       st.pendingFrames = 0;
+      st.armed = false;      // 必须回到起始位才能开下一次，否则会白捡一个计数
       st.partialCycles++;
     }
 
@@ -349,25 +410,33 @@
     }
 
     function updatePhase(feat, ts) {
-      var a = feat.kneeAvg;
-      var raw = typeof feat.rawKnee === 'number' ? feat.rawKnee : a;
+      /* 主角度：深蹲是膝屈角，卧推/弯举是肘屈角，硬拉/臀桥是髋角，侧平举是肩臂夹角。
+       * 状态机只认这一个标量，动作差异全部由 rules.phase 的阈值承担。 */
+      var a = feat.mAvg;
+      var raw = typeof feat.rawM === 'number' ? feat.rawM : a;
       if (a === null && raw === null) { st.pendingPhase = null; st.pendingFrames = 0; return st.phase; }
 
       // 超时保护：候选打开过久仍未完成 → 视作动作中断，作废不计数
       if (st.cur && (ts - st.cur.startTs) > ph.maxRepMs) discardRep();
 
+      // 回到起始位才重新武装下一轮（超时作废/长时间中断后不会立刻白开一次）
+      if (raw !== null && mv(raw) >= mv(ph.standAngle)) st.armed = true;
+
       // 首次下蹲：用**未平滑**的角度开门，避免漏掉较浅的下蹲
-      if (!st.cur && raw !== null && raw < ph.descendEnterAngle) {
+      if (!st.cur && st.armed && raw !== null && mv(raw) < mv(ph.descendEnterAngle)) {
         openRep(ts);
-        st.phase = 'standing';   // 蹲下去之前必然处于站立，据此作为状态机起点
+        st.phase = 'standing';   // 蹲下去之前必然处于起始位，据此作为状态机起点
       }
       if (!st.cur) { st.pendingPhase = null; st.pendingFrames = 0; return st.phase; }
+      /* 平滑主角度为空时不参与阶段判定：null 参与数值比较会被当成 0，
+       * 在 max 口径下 0 恒满足"越屈越深"，会凭空判定到达最深处。 */
+      if (a === null) { st.pendingPhase = null; st.pendingFrames = 0; return st.phase; }
 
       /* 回到站立即刻结算。
        * 为什么要单独处理而不是走通用去抖：闭合条件是"已从最低点回到站立"，
        * 重复计数的风险由 bottomReached 门控与 minRepMs / maxRepMs 时长约束兜住；
        * 若这里还要等去抖帧数，采样稀疏时会整次动作都不结算。 */
-      if (st.phase === 'ascending' && a !== null && a >= ph.standAngle) {
+      if (st.phase === 'ascending' && a !== null && mv(a) >= mv(ph.standAngle)) {
         st.phase = 'standing';
         st.pendingPhase = null;
         st.pendingFrames = 0;
@@ -377,16 +446,21 @@
       }
 
       var target = null;
+      var A = mv(a);
+      var B = mv(ph.bottomEnterAngle);
+      var D = mv(ph.descendEnterAngle);
+      var X = mv(ph.bottomExitAngle);
+      var S = mv(ph.standAngle);
       if (st.phase === 'standing') {
-        if (a <= ph.bottomEnterAngle) target = 'bottom';
-        else if (a < ph.descendEnterAngle) target = 'descending';
+        if (A <= B) target = 'bottom';
+        else if (A < D) target = 'descending';
       } else if (st.phase === 'descending') {
-        if (a <= ph.bottomEnterAngle) target = 'bottom';
+        if (A <= B) target = 'bottom';
       } else if (st.phase === 'bottom') {
-        if (a >= ph.bottomExitAngle) target = 'ascending';
+        if (A >= X) target = 'ascending';
       } else if (st.phase === 'ascending') {
-        if (a >= ph.standAngle) target = 'standing';
-        else if (a <= ph.bottomEnterAngle) target = 'bottom';   // 到达底部后又蹲了一次
+        if (A >= S) target = 'standing';
+        else if (A <= B) target = 'bottom';   // 到达最深处后又做了一次
       }
 
       if (target === null) { st.pendingPhase = null; st.pendingFrames = 0; return st.phase; }
@@ -422,9 +496,18 @@
       rep.frames++;
       rep.visibilitySum += feat.visibility;
       rep.visibilityFrames++;
-      if (feat.kneeAvg !== null && feat.kneeAvg < rep.minKneeAngle) rep.minKneeAngle = feat.kneeAvg;
-      if (feat.kneeLeft !== null && feat.kneeRight !== null) {
-        var diff = Math.abs(feat.kneeLeft - feat.kneeRight);
+      /* 幅度取**未平滑**的原始角度：EMA 有滞后，用平滑值记录极值会系统性低估幅度
+       *（真实深蹲 95° 可能被记成 110°，直接把合格动作判成"深度不足"）。
+       * 阶段判定仍然用平滑值——那是为了抗抖，两件事不要混为一谈。 */
+      var v = (feat.rawM !== null && feat.rawM !== undefined) ? feat.rawM : feat.mAvg;
+      if (v !== null) {
+        if (v < rep.minMetric) rep.minMetric = v;
+        if (v > rep.maxMetric) rep.maxMetric = v;
+        /* 膝角别名只给真的是膝角的动作，避免把肘角写成膝角 */
+        if ((R.metric && R.metric.code === 'knee') && v < rep.minKneeAngle) rep.minKneeAngle = v;
+      }
+      if (feat.mLeft !== null && feat.mRight !== null) {
+        var diff = Math.abs(feat.mLeft - feat.mRight);
         if (diff > rep.maxSideDiffDeg) rep.maxSideDiffDeg = diff;
         rep.symmetrySamples++;
       }
@@ -434,13 +517,13 @@
         rep.leanSamples++;
       }
       if (rep.viewMode === 'unknown' && feat.view !== 'unknown') rep.viewMode = feat.view;
-      // 下行回弹：下行阶段出现角度回升超过阈值
+      // 工作阶段回弹：做功方向上出现"退回"超过阈值（max 口径下退回 = 角度变小）
       if (st.phase === 'descending' || st.phase === 'bottom') {
-        if (rep.prevKnee !== null && feat.kneeAvg !== null) {
-          if (feat.kneeAvg - rep.prevKnee >= R.tempo.reversalDeg) rep.reversals++;
+        if (rep.prevKnee !== null && feat.mAvg !== null) {
+          if ((feat.mAvg - rep.prevKnee) * MIR >= R.tempo.reversalDeg) rep.reversals++;
         }
       }
-      rep.prevKnee = feat.kneeAvg;
+      rep.prevKnee = feat.mAvg;
     }
 
     function handleLoss(ts) {
@@ -474,6 +557,7 @@
         st.lastTs = ts;
         return {
           phase: st.phase, reliable: false, reason: feat.reason, missing: feat.missing,
+          mAvg: null, mLeft: null, mRight: null,
           kneeAvg: null, view: 'unknown', visibility: feat.visibility,
           completedRep: null, repAlreadyOpen: !!st.cur
         };
@@ -484,15 +568,18 @@
       st.lostMs = 0;
 
       // EMA 平滑：抑制单帧抖动，但保留真实趋势
-      if (feat.kneeAvg !== null) {
-        st.smoothKnee = st.smoothKnee === null ? feat.kneeAvg
-          : (ph.smoothAlpha * feat.kneeAvg + (1 - ph.smoothAlpha) * st.smoothKnee);
+      if (feat.mAvg !== null) {
+        st.smoothKnee = st.smoothKnee === null ? feat.mAvg
+          : (ph.smoothAlpha * feat.mAvg + (1 - ph.smoothAlpha) * st.smoothKnee);
       }
       var smoothed = {
-        kneeAvg: st.smoothKnee,
-        /* 原始角度用于"是否开始一次下蹲"的判定：平滑值有滞后，
+        mAvg: st.smoothKnee,
+        /* 原始角度用于"是否开始一次动作"的判定：平滑值有滞后，
          * 用它做开门条件会漏掉幅度偏浅的动作（浅蹲恰恰最需要提示）。 */
-        rawKnee: feat.kneeAvg,
+        rawM: feat.mAvg,
+        mLeft: feat.mLeft, mRight: feat.mRight,
+        /* 兼容字段：主角度真的是膝角时给同值别名 */
+        kneeAvg: feat.mAvg === null ? null : ((R.metric && R.metric.code === 'knee') ? st.smoothKnee : null),
         kneeLeft: feat.kneeLeft, kneeRight: feat.kneeRight,
         visibility: feat.visibility, lean: feat.lean, view: feat.view, missing: feat.missing
       };
@@ -507,6 +594,7 @@
       st.lastTs = ts;
       return {
         phase: phase, reliable: true, reason: '', missing: feat.missing,
+        mAvg: smoothed.mAvg, mLeft: smoothed.mLeft, mRight: smoothed.mRight,
         kneeAvg: smoothed.kneeAvg, view: feat.view, visibility: feat.visibility,
         completedRep: completed, repAlreadyOpen: !!st.cur
       };
@@ -588,6 +676,10 @@
           return {
             index: r.index, startTs: r.startTs, endTs: r.endTs, durationMs: r.durationMs,
             minKneeAngle: round1(r.minKneeAngle), score: r.score,
+            /* 主角度：minMetric/maxMetric 与 metricCode 一起，才能解释这个数字到底是哪个关节 */
+            metricCode: R.metric ? R.metric.code : 'knee',
+            minMetric: r.minMetric === 999 ? null : round1(r.minMetric),
+            maxMetric: r.maxMetric === -999 ? null : round1(r.maxMetric),
             qualityReliable: r.qualityReliable, canGrade: r.canGrade,
             detectionConfidence: r.detectionConfidence, viewMode: r.viewMode,
             dims: r.dims
