@@ -11861,7 +11861,9 @@
 
     return ''
       /* 1. 今日主行动 */
-      + '<section class="m-card m-card-blue">'
+      /* 「今天」是全站唯一用柔色底的卡（.m-card-hero）：
+         打开应用第一眼要看到的只有「今天练什么」，其余卡片一律白底往后退。 */
+      + '<section class="m-card m-card-hero">'
       + '<div class="m-card-h"><h2>今天</h2><span class="m-pill">' + today() + '</span></div>'
       + '<p class="m-p">你好，<b>' + esc(p.name || ctx.member_id) + '</b>'
       + (act.tip ? '，' + esc(act.tip) : '') + '。</p>'
@@ -12251,9 +12253,10 @@
         muscleOptions('primary_muscles').map(function (m) { return [m, m]; }), q.muscle) + '</select>'
       + '<select id="fMuscle2">' + sel('全部辅助肌群',
         muscleOptions('secondary_muscles').map(function (m) { return [m, m]; }), q.muscle2) + '</select>'
+      /* 选项文案刻意短：手机两列布局下，长文案会被 select 截断成半截 */
       + '<select id="fAi">' + sel('全部 AI 监测', [
-        ['yes', '仅看支持监测（A/B）'], ['A', 'A 级 · AI 可监测'],
-        ['B', 'B 级 · 有限监测'], ['C', 'C 级 · 暂不支持']
+        ['yes', '支持监测 (A/B)'], ['A', 'A 级 · 可监测'],
+        ['B', 'B 级 · 有限'], ['C', 'C 级 · 不支持']
       ], q.ai) + '</select>'
       + '<input id="fQ" type="search" placeholder="搜索名称 / 别名 / 肌群" value="' + esc(q.q || '') + '">'
       + '<button class="m-btn m-btn-ghost' + (q.fav ? ' m-btn-on' : '')
@@ -12261,8 +12264,9 @@
       + '</div>'
       + (fl.blocked
         ? '<p class="m-hint m-warn">按你的伤病禁忌已屏蔽 ' + fl.blocked + ' 个动作。</p>' : '')
-      + '<div class="m-btn-row"><button class="m-btn" id="btnResetFilter">重置筛选</button>'
-      + '<button class="m-btn m-btn-primary" id="btnNewExercise">+ 自建动作</button></div>'
+      /* 这两颗都是次级操作：主紫实心只留给「开始训练 / 保存计划 / 开始 AI 监测」这类主任务 */
+      + '<div class="m-btn-row m-btn-row-2"><button class="m-btn" id="btnResetFilter">重置筛选</button>'
+      + '<button class="m-btn" id="btnNewExercise">+ 自建动作</button></div>'
       + '</section>'
       + '<div id="exList" class="m-exlist">'
       + (list.length
@@ -12295,7 +12299,9 @@
         }).join('')
         : '<div class="m-empty">' + (q.fav
           ? '你还没有收藏任何动作。点列表里的 ☆ 即可收藏。'
-          : '没有符合条件的动作。') + '</div>')
+          : '没有符合条件的动作。可以放宽筛选，或者直接清空条件。')
+          + '<div class="m-btn-row" style="justify-content:center">'
+          + '<button class="m-btn m-btn-ghost" id="btnEmptyReset">清空全部筛选</button></div></div>')
       + '</div>';
   }
 
@@ -12410,6 +12416,9 @@
     if (reset) reset.addEventListener('click', function () { location.hash = '#exercises'; });
     var ne = $('btnNewExercise');
     if (ne) ne.addEventListener('click', function () { openNewExercise(); });
+    /* 空状态里的重置按钮：和顶部「重置筛选」同一行为，只是离用户更近，不必滚回页面顶部 */
+    var er = $('btnEmptyReset');
+    if (er) er.addEventListener('click', function () { location.hash = '#exercises'; });
 
     var list = $('exList');
     if (list) {
@@ -12496,8 +12505,19 @@
         tip = document.createElement('div');
         tip.id = 'exEmptyTip';
         tip.className = 'm-empty';
-        tip.textContent = '这个关键词在当前筛选条件下没有匹配。清空搜索可看全部。';
+        tip.innerHTML = '<p class="m-p">这个关键词在当前筛选条件下没有匹配。</p>'
+          + '<div class="m-btn-row" style="justify-content:center">'
+          + '<button class="m-btn m-btn-ghost" id="btnClearKw">清空搜索词</button></div>';
         box.appendChild(tip);
+        /* 清空后焦点还给搜索框：手机键盘不收起，可以接着换词 */
+        var cb = document.getElementById('btnClearKw');
+        if (cb) cb.addEventListener('click', function () {
+          var input = $('fQ');
+          if (!input) return;
+          input.value = '';
+          applySearchInPlace('');
+          input.focus();
+        });
       }
       tip.hidden = false;
     } else if (tip) {
@@ -13085,16 +13105,23 @@
       for (var d = 1; d <= 7; d++) {
         var dayList = items.filter(function (it) { return +it.day_of_week === d; })
           .sort(function (a, b) { return (+a.order_index) - (+b.order_index); });
-        html += '<div class="m-day"><div class="m-day-h">' + dayName(d)
-          + (d === jsDayToPlanDay(new Date().getDay()) ? ' <span class="m-pill">今天</span>' : '') + '</div>';
+        /* 日头写成「周一」而不是单个字「一」：单字在长列表里扫不出星期几。
+           右侧补一个训练日 / 休息日状态词，不只看有没有动作块来猜。 */
+        html += '<div class="m-day' + (dayList.length ? '' : ' m-day-rest') + '">'
+          + '<div class="m-day-h">周' + dayName(d)
+          + (d === jsDayToPlanDay(new Date().getDay()) ? ' <span class="m-pill">今天</span>' : '')
+          + ' <span class="m-state ' + (dayList.length ? 'm-state-on' : 'm-state-off') + '">'
+          + (dayList.length ? dayList.length + ' 个动作' : '休息') + '</span></div>';
         if (!dayList.length) {
-          html += '<div class="m-day-empty">休息</div>';
+          html += '<div class="m-day-empty">这一天没有排动作（休息）。</div>';
         } else {
           html += dayList.map(function (it) {
             return '<div class="m-planitem">'
               + '<div class="m-planitem-t">' + esc(it.exercise_name_snapshot)
-              + '<em>' + esc(it.target_sets) + ' 组 × ' + esc(it.target_reps) + ' 次'
-              + (it.target_weight ? ' · ' + esc(it.target_weight) + 'kg' : '') + '</em></div>'
+              /* 数字加粗、单位降级：训练参数要能扫读。
+                 刻意不重排结构 —— 渲染出的文本仍严格是「N 组 × N 次 · Nkg」。 */
+              + '<em><b>' + esc(it.target_sets) + '</b> 组 × <b>' + esc(it.target_reps) + '</b> 次'
+              + (it.target_weight ? ' · <b>' + esc(it.target_weight) + '</b>kg' : '') + '</em></div>'
               + (locked ? '' : '<div class="m-planitem-b">'
                 + '<button class="m-btn m-btn-xs" data-pi-up="' + esc(it.plan_item_id) + '">↑</button>'
                 + '<button class="m-btn m-btn-xs" data-pi-dn="' + esc(it.plan_item_id) + '">↓</button>'
@@ -13269,8 +13296,10 @@
           + items.map(function (it, i) {
             return '<div class="m-bagitem">'
               + '<div class="m-bagitem-t">' + (i + 1) + '. ' + esc(it.exercise_name_snapshot)
-              + '<em>' + esc(it.target_sets) + ' 组 × ' + esc(it.target_reps) + ' 次'
-              + (it.target_weight ? ' · ' + esc(it.target_weight) + 'kg' : '') + '</em></div>'
+              /* 数字加粗、单位降级：训练参数要能扫读。
+                 刻意不重排结构 —— 渲染出的文本仍严格是「N 组 × N 次 · Nkg」。 */
+              + '<em><b>' + esc(it.target_sets) + '</b> 组 × <b>' + esc(it.target_reps) + '</b> 次'
+              + (it.target_weight ? ' · <b>' + esc(it.target_weight) + '</b>kg' : '') + '</em></div>'
               + '<div class="m-bagitem-b">'
               + '<button class="m-btn m-btn-xs" data-bi-up="' + esc(it.bag_item_id) + '">↑</button>'
               + '<button class="m-btn m-btn-xs" data-bi-dn="' + esc(it.bag_item_id) + '">↓</button>'
@@ -13489,7 +13518,7 @@
       + (prev ? esc(prev.reps) : (cur ? esc(cur.target_reps) : '')) + '"></label>'
       + '</div>'
       + '<div class="m-btn-row">'
-      + '<button class="m-btn m-btn-primary" id="btnLogSet">完成本组</button>'
+      + '<button class="m-btn m-btn-primary m-btn-lg" id="btnLogSet">完成本组</button>'
       + (prev ? '<button class="m-btn m-btn-ghost" id="btnCopyPrev">复制上一组</button>' : '')
       + (sets.length ? '<button class="m-btn m-btn-ghost" id="btnUndoSet">撤销上一组</button>' : '')
       + '</div><div class="m-hint" id="wMsg"></div>'
@@ -13502,7 +13531,9 @@
             + '<em>' + esc(String(x.logged_at).slice(11, 16)) + '</em></div>';
         }).join('') + '</section>' : '')
 
-      + '<section class="m-card"><div class="m-card-h"><h2>结束训练</h2></div>'
+      /* 结束区单独一张卡 + 灰底分区：与上方的「记录这一组」拉开距离，
+         避免连记几组后手滑点到「结束并结算」/「放弃这次训练」。 */
+      + '<section class="m-card m-finish-zone"><div class="m-card-h"><h2>结束训练</h2></div>'
       + '<div class="m-form"><label class="m-fld"><span>这次练得怎么样 <b class="m-req">*</b></span>'
       + '<select id="wFeeling">'
       + opt(['', 'great', 'good', 'normal', 'tired', 'pain'],
@@ -13511,7 +13542,9 @@
       + '<p class="m-hint" id="wPainTip" hidden>如果疼痛持续或加重，请停止训练并咨询医生或教练。'
       + '这里只做安全提示，不做任何诊断。</p>'
       + '<div class="m-btn-row">'
-      + '<button class="m-btn m-btn-primary" id="btnFinish">结束并结算</button>'
+      /* 结束并结算不是「主操作」：主紫实心只留给开练类动作，
+         这里用深墨色实心，避免和上方「完成本组」连成一片紫色。 */
+      + '<button class="m-btn m-btn-finish" id="btnFinish">结束并结算</button>'
       + (s.status === 'paused'
         ? '<button class="m-btn" id="btnResume">继续计时</button>'
         : '<button class="m-btn m-btn-ghost" id="btnPause">暂停</button>')
@@ -14100,7 +14133,9 @@
               + ' <em>' + esc(it.sets) + ' 组 × ' + esc(it.reps) + ' 次</em></div>';
           }).join('') + '</div>'
           + '<div class="m-btn-row">'
-          + '<button class="m-btn m-btn-sm m-btn-primary" data-insp="' + esc(c.code)
+          /* 卡内动作一律用次级样式：灵感卡是「建议」，
+             主紫实心只留给首页「今天」那一处，否则一屏会出现 6 个大紫按钮。 */
+          + '<button class="m-btn m-btn-sm m-btn-ghost" data-insp="' + esc(c.code)
           + '" data-insp-act="bag">加入今日背包</button>'
           + '<button class="m-btn m-btn-sm" data-insp="' + esc(c.code)
           + '" data-insp-act="plan"' + (hasPlan ? '' : ' disabled') + '>排进本周计划</button>'
@@ -14265,7 +14300,8 @@
     var rows = (d.keys || []).filter(function (k) { return lvMatch(k, lv); }).map(function (k) {
       /* 这里的局部名不能也叫 lv：外层参数 lv 是筛选档位，同名会把两个意思糊在一起 */
       var lvNum = k.level || 0;
-      return '<a class="m-tlitem m-exrow" href="#explore?dim=' + encodeURIComponent(d.key)
+      /* 未解锁的格子整行降一级灰度：亮起来的自然是本页重点，不必给每格上色 */
+      return '<a class="m-tlitem m-exrow' + (lvNum ? '' : ' m-exrow-off') + '" href="#explore?dim=' + encodeURIComponent(d.key)
         + '&key=' + encodeURIComponent(k.key) + '">'
         + '<div class="m-exrow-h"><span class="m-tl-t">' + esc(k.label) + '</span>'
         + '<span class="m-pill' + (lvNum ? ' m-pill-on' : '') + '">'

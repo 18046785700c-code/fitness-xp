@@ -1,23 +1,54 @@
 /* Fitness XP — AI 动作教练 页面样式
  * 设计原则：
- *   1) 沿用项目已确定的色彩变量（浅底 / 柔和低饱和多彩卡片），不另起一套色板；
+ *   1) 色值与会员端 04_会员端/css/member.css 完全同源（同一套 Design Tokens）。
+ *      AI 教练原来是另一套蓝 / teal 色板，与会员端放在一起像两个产品，本版统一为品牌紫。
  *   2) 全部选择器加 .aic- 或限定在 #xxx 下，避免与教练端 app.css 冲突；
  *   3) 手机优先，触控目标 ≥44px；
- *   4) 训练页只留"画面 + 计数 + 一句话提示"，其余折叠。
+ *   4) 摄像头区是唯一主视觉，其余卡片一律降权（浅灰描边、无阴影、字号下调）；
+ *   5) 状态用「颜色 + 文字 + 图标」三通道表达，不只用颜色。
+ *
+ * 说明：本文件原来是 --brand/--teal 那套命名，为了不在改动时漏改，
+ *      这里一次性换成与会员端一致的 purple / ink / 语义命名，旧名全部作废。
  */
 :root {
-  --brand: #3563E9;
-  --teal: #14B8A6;
-  --purple: #8B5CF6;
-  --orange: #F59E0B;
-  --red: #EF4444;
-  --sky: #0EA5E9;
-  --bg: #F5F7FB;
+  --purple: #6D5CE8;          /* 主紫：与会员端 --m-purple 同值 */
+  --purple-deep: #5144B5;
+  --purple-l: #F0EDFF;
+  --purple-ink: #4C3FB2;
+
+  --blue: #72BCE5;
+  --blue-l: #EDF6FC;
+  --blue-ink: #2A6B93;
+
+  --teal: #75CBA8;            /* 薄荷绿：完成 */
+  --teal-l: #E9F6F1;
+  --green-ink: #247A59;
+
+  --amber: #E7C66D;           /* 暖黄：需要调整 */
+  --amber-l: #FDF6E7;
+  --amber-ink: #8A641A;
+
+  --red: #B63D54;             /* 危险 / 识别失败 */
+  --red-l: #FBEEF1;
+  --red-ink: #9B2C42;
+
+  --bg: #F7F7FB;
   --card: #FFFFFF;
-  --text: #172033;
-  --text-2: #64748B;
-  --border: #E2E8F0;
-  --radius: 12px;
+  --text: #29263D;
+  --text-2: #716F82;
+  /* 次级文字的「浅底版」：#716F82 落在 #F4F3F8 这类浅底上只有 4.43:1，差 0.07 不过 4.5。
+     凡是浅底胶囊 / 浅底标签上的次级文字，一律用这一档。 */
+  --text-3: #605E75;
+  --border: #E9E8F0;
+  --border-strong: #DAD7E4;
+  --radius: 16px;             /* 卡片：与会员端一致 */
+  --radius-sm: 12px;
+  --radius-btn: 10px;
+  --tap: 44px;
+  --input-h: 46px;
+  --shadow: 0 1px 3px rgba(41, 38, 61, .05);
+  --shadow-2: 0 4px 14px rgba(41, 38, 61, .08);
+  --ease: .16s cubic-bezier(.4, 0, .2, 1);
 }
 
 * { box-sizing: border-box; }
@@ -28,6 +59,15 @@ body {
   color: var(--text);
   font: 15px/1.6 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
   padding-bottom: env(safe-area-inset-bottom);
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* 键盘焦点：AI 页全是按钮，焦点框必须看得见 */
+a:focus-visible, button:focus-visible, input:focus-visible,
+select:focus-visible, summary:focus-visible, [tabindex]:focus-visible {
+  outline: 3px solid #B9A9FA;
+  outline-offset: 2px;
+  border-radius: var(--radius-btn);
 }
 
 /* ---------- 顶栏 ---------- */
@@ -40,40 +80,53 @@ body {
 .aic-brand { font-weight: 700; font-size: 16px; }
 .aic-brand .ver { font-size: 12px; color: var(--text-2); font-weight: 500; margin-left: 6px; }
 .aic-statusbar { display: flex; gap: 6px; flex-wrap: wrap; margin-left: auto; }
-.aic-back { font-size: 13px; color: var(--brand); text-decoration: none; }
+.aic-back {
+  font-size: 13px; color: var(--purple-deep); text-decoration: none;
+  display: inline-flex; align-items: center; min-height: var(--tap); padding: 0 4px;
+}
 
+/* 状态胶囊：颜色 + 圆点 + 中文，三通道。
+   off 灰 / ok 绿 / warn 黄 / error 红，与会员端 .m-state-* 同口径。 */
 .pill {
   font-size: 12px; padding: 3px 10px; border-radius: 999px;
-  background: #F1F5F9; color: var(--text-2); border: 1px solid var(--border);
+  background: #F4F3F8; color: var(--text-3); border: 1px solid var(--border);
   white-space: nowrap;
+  display: inline-flex; align-items: center; gap: 5px;
 }
-.pill[data-level="ok"]    { background: #CCFBF1; color: #0F766E; border-color: #99F6E4; }
-.pill[data-level="warn"]  { background: #FEF3C7; color: #B45309; border-color: #FDE68A; }
-.pill[data-level="error"] { background: #FEE2E2; color: #B91C1C; border-color: #FECACA; }
-.pill[data-level="off"]   { background: #F1F5F9; color: var(--text-2); }
+.pill::before {
+  content: ''; width: 6px; height: 6px; border-radius: 50%;
+  background: currentColor; flex: none;
+}
+.pill[data-level="ok"]    { background: var(--teal-l);  color: var(--green-ink); border-color: #B9E4D1; }
+.pill[data-level="warn"]  { background: var(--amber-l); color: var(--amber-ink); border-color: #EFDCB2; }
+.pill[data-level="error"] { background: var(--red-l);   color: var(--red-ink);   border-color: #F1CBD2; }
+.pill[data-level="off"]   { background: #F4F3F8;        color: var(--text-3); }
 
 /* ---------- 布局 ---------- */
 .aic-main { max-width: 960px; margin: 0 auto; padding: 16px 16px 32px; display: grid; gap: 16px; }
 
+/* 辅助卡片降权：只有 1px 描边，不给阴影。
+   摄像头区是全页唯一的主视觉，其它卡片都该往后退。 */
 .card {
   background: var(--card); border: 1px solid var(--border);
   border-radius: var(--radius); padding: 16px;
-  box-shadow: 0 1px 3px rgba(23,32,51,.06), 0 4px 14px rgba(23,32,51,.05);
 }
-.card h2 { margin: 0 0 10px; font-size: 15px; font-weight: 700; }
+.card h2 { margin: 0 0 10px; font-size: 16px; font-weight: 700; }
 .card-head-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
 .card-head-row h2 { margin-bottom: 0; }
 
 /* ---------- 舞台（画面） ---------- */
 .card-stage { padding-bottom: 12px; }
-.stage-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 10px; }
-.stage-head h2 { margin: 0; }
+/* 摄像头卡：给 2px 紫边 + 一级阴影，让它在整页白卡里明确是主角 */
+.card-stage { border-color: #DDD5F8; box-shadow: var(--shadow-2); }
+.stage-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+.stage-head h2 { margin: 0; font-size: 22px; }
 .stage-head .hint { font-size: 12px; color: var(--text-2); margin-left: auto; }
 
 .stage {
   position: relative; width: 100%;
   aspect-ratio: 3 / 4; max-height: 62vh;
-  background: #0F172A; border-radius: 10px; overflow: hidden;
+  background: #22202F; border-radius: var(--radius-sm); overflow: hidden;
 }
 @media (min-width: 720px) { .stage { aspect-ratio: 4 / 3; } }
 
@@ -85,59 +138,89 @@ body {
 .stage-overlay {
   position: absolute; inset: 0; display: flex; flex-direction: column;
   align-items: center; justify-content: center; gap: 8px; text-align: center;
-  padding: 24px; background: rgba(15,23,42,.72); color: #E2E8F0;
+  padding: 24px; background: rgba(34,32,47,.76); color: #E7E4F2;
   backdrop-filter: blur(2px);
 }
 .stage-overlay[hidden] { display: none; }
-.ov-icon { font-size: 34px; }
+.ov-icon { font-size: 30px; line-height: 1; }
 .ov-title { font-size: 16px; font-weight: 700; color: #fff; }
 .ov-text { font-size: 13px; max-width: 34em; line-height: 1.7; }
 .ov-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; margin-top: 4px; }
 .ov-actions .btn { background: rgba(255,255,255,.14); color: #fff; border-color: rgba(255,255,255,.3); }
-.ov-actions .btn.primary { background: var(--brand); border-color: var(--brand); }
+.ov-actions .btn.primary { background: var(--purple); border-color: var(--purple); }
 
 .stage-toast {
   position: absolute; left: 50%; transform: translateX(-50%); bottom: 14px;
   max-width: 90%; padding: 8px 14px; border-radius: 999px;
   font-size: 14px; font-weight: 600; line-height: 1.4;
-  background: rgba(23,32,51,.86); color: #fff;
-  box-shadow: 0 4px 14px rgba(0,0,0,.25); text-align: center;
+  background: rgba(41,38,61,.88); color: #fff;
+  text-align: center;
 }
-.stage-toast[data-level="warn"]     { background: rgba(180,83,9,.94); }
-.stage-toast[data-level="good"]     { background: rgba(15,118,110,.94); }
-.stage-toast[data-level="advisory"] { background: rgba(3,105,161,.94); }
+/* 每条提示都带状态字前缀（JS 已写入），颜色只是第二重表达 */
+.stage-toast[data-level="warn"]     { background: rgba(138,100,26,.96); }
+.stage-toast[data-level="good"]     { background: rgba(36,122,89,.96); }
+.stage-toast[data-level="advisory"] { background: rgba(42,107,147,.96); }
 .stage-toast[hidden] { display: none; }
 
 .stage-metrics {
   position: absolute; top: 10px; right: 10px; display: grid; gap: 4px;
-  padding: 8px 10px; border-radius: 10px;
-  background: rgba(15,23,42,.62); color: #fff; font-size: 12px; text-align: right;
+  padding: 8px 10px; border-radius: var(--radius-sm);
+  background: rgba(41,38,61,.55); color: #fff; font-size: 12px; text-align: right;
 }
 .stage-metrics[hidden] { display: none; }
 .metric { display: flex; align-items: baseline; gap: 6px; justify-content: flex-end; }
 .m-num { font-size: 18px; font-weight: 800; min-width: 1.6em; }
-.m-lab { color: #CBD5E1; font-size: 11px; }
+.m-lab { color: #D9D5E6; font-size: 11px; }
 
 .stage-controls { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
 
+/* 全站按钮语义与会员端对齐：
+   主操作紫实心 / good 深绿实心（开始训练）/ warn 深黄实心（结束训练）
+   ghost 浅紫次级 / danger-ghost 浅红危险 */
 .btn {
-  min-height: 44px; padding: 0 16px; border-radius: 10px; cursor: pointer;
-  border: 1px solid var(--border); background: var(--card); color: var(--text);
+  min-height: var(--tap); padding: 0 16px; border-radius: var(--radius-btn); cursor: pointer;
+  border: 1px solid var(--border-strong); background: var(--card); color: var(--text);
   font-size: 14px; font-weight: 600;
+  transition: background var(--ease), border-color var(--ease), color var(--ease);
 }
-.btn:disabled { opacity: .45; cursor: not-allowed; }
-.btn.primary { background: var(--brand); border-color: var(--brand); color: #fff; }
-.btn.good    { background: var(--teal); border-color: var(--teal); color: #fff; }
-.btn.warn    { background: var(--orange); border-color: var(--orange); color: #fff; }
-.btn.ghost   { background: #F1F5F9; }
-.btn.mini    { min-height: 34px; padding: 0 12px; font-size: 13px; border-radius: 8px; }
-.btn.danger-ghost { background: #FEE2E2; border-color: #FECACA; color: #B91C1C; }
+.btn:hover { border-color: var(--purple); color: var(--purple-deep); }
+.btn:active { background: #F6F4FC; }
+.btn:disabled { opacity: .45; cursor: not-allowed; box-shadow: none; }
+.btn:disabled:hover { border-color: var(--border-strong); color: var(--text); }
+
+.btn.primary { background: var(--purple); border-color: var(--purple); color: #fff; }
+.btn.primary:hover { background: var(--purple-deep); border-color: var(--purple-deep); color: #fff; }
+.btn.primary:disabled:hover { background: var(--purple); color: #fff; }
+
+/* 「开始训练」用深绿实心：它是本页的 affirm 动作，但要和紫色主操作区分开 */
+.btn.good { background: var(--green-ink); border-color: var(--green-ink); color: #fff; }
+.btn.good:hover { background: #1C5F45; border-color: #1C5F45; color: #fff; }
+/* 「结束训练」用深黄实心而不是灰：它是有终态的动作，但不能误做成主紫 */
+.btn.warn { background: var(--amber-ink); border-color: var(--amber-ink); color: #fff; }
+.btn.warn:hover { background: #6E5014; border-color: #6E5014; color: #fff; }
+
+.btn.ghost { background: var(--purple-l); border-color: #DDD5F8; color: var(--purple-ink); }
+.btn.ghost:hover { background: #E7E1FF; border-color: var(--purple); color: var(--purple-deep); }
+/* mini 按钮视觉上就是小的（设置区一排四个，撑到 44px 会把卡片拉长一倍），
+   但触控区必须够：用 ::after 把可点高度撑到 44px，不占布局、不改行高。
+   相邻按钮间距 ≥8px，两侧各外扩 4px 正好不相撞。 */
+.btn.mini { min-height: 36px; padding: 0 12px; font-size: 13px; position: relative; }
+.btn.mini::after {
+  content: ''; position: absolute; left: 0; right: 0; top: 50%;
+  height: 44px; transform: translateY(-50%);
+}
+/* 危险（清空记录）：浅红底 + 深红字，hover 才实心 */
+.btn.danger-ghost { background: var(--red-l); border-color: #F1CBD2; color: var(--red-ink); }
+.btn.danger-ghost:hover { background: var(--red); border-color: var(--red); color: #fff; }
 
 .notice { margin-top: 10px; font-size: 13px; padding: 10px 12px; border-radius: 8px; }
 .notice[hidden] { display: none; }
-.notice.error { background: #FEE2E2; color: #B91C1C; border: 1px solid #FECACA; }
-.notice.warn  { background: #FEF3C7; color: #B45309; border: 1px solid #FDE68A; }
-.notice.info  { background: #E0F2FE; color: #0369A1; border: 1px solid #BAE6FD; }
+.notice.error { background: var(--red-l);   color: var(--red-ink);   border: 1px solid #F1CBD2; }
+.notice.warn  { background: var(--amber-l); color: var(--amber-ink); border: 1px solid #EFDCB2; }
+.notice.info  { background: var(--blue-l);  color: var(--blue-ink);  border: 1px solid #CFE7F5; }
+/* 错误提示自带图标位，不只靠红底 */
+.notice.error::before { content: '\26A0\FE0E '; font-weight: 700; }
+.notice.warn::before  { content: '\26A0\FE0E '; font-weight: 700; }
 
 /* ---------- 表单 ---------- */
 .grid-2 { display: grid; gap: 12px; grid-template-columns: 1fr; }
@@ -147,11 +230,17 @@ body {
 .f-lab { display: block; font-size: 12px; color: var(--text-2); margin-bottom: 4px; font-weight: 600; }
 .f-tip { display: block; font-size: 12px; color: var(--text-2); margin-top: 4px; line-height: 1.5; }
 .field input, .field select {
-  width: 100%; min-height: 42px; padding: 0 10px; border-radius: 8px;
-  border: 1px solid var(--border); background: #fff; font-size: 14px; color: var(--text);
+  width: 100%; min-height: var(--input-h); padding: 0 12px; border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong); background: #fff; font-size: 14px; color: var(--text);
+  transition: border-color var(--ease), box-shadow var(--ease);
 }
-.field input:focus, .field select:focus { outline: 2px solid var(--brand); outline-offset: -1px; }
-.chk { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; min-height: 34px; }
+.field input:focus, .field select:focus {
+  outline: none; border-color: var(--purple); box-shadow: 0 0 0 3px #E2DBFF;
+}
+.field input:invalid:not(:placeholder-shown) { border-color: var(--red); }
+select.field-error, .field input.field-error { border-color: var(--red); background: var(--red-l); }
+/* 复选框本身 18px 是视觉尺寸，真正的点击区是外层 label：撑到 44px 高。 */
+.chk { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; min-height: 44px; }
 .chk input { width: 18px; height: 18px; }
 
 /* ---------- 折叠区 ---------- */
@@ -162,39 +251,43 @@ body {
 .adv-note { font-size: 12.5px; color: var(--text-2); line-height: 1.7; margin: 0 0 10px; }
 .adv-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
 .adv-state { margin-top: 8px; font-size: 12.5px; }
-.adv-state.ok   { color: #0F766E; }
-.adv-state.bad  { color: #B91C1C; }
-.adv-state.warn { color: #B45309; }
+.adv-state.ok   { color: var(--green-ink); }
+.adv-state.bad  { color: var(--red-ink); }
+.adv-state.warn { color: var(--amber-ink); }
 .card.dev { border-style: dashed; }
 
 /* ---------- 复盘 ---------- */
 .review-grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); margin-bottom: 12px; }
-.rbox { padding: 10px 12px; border-radius: 10px; background: #F8FAFC; border: 1px solid var(--border-soft, #F1F5F9); }
+.rbox {
+  padding: 12px 12px; border-radius: var(--radius-sm);
+  background: var(--card); border: 1px solid var(--border);
+}
 .rbox .rb-lab { font-size: 12px; color: var(--text-2); }
-.rbox .rb-val { font-size: 20px; font-weight: 800; }
-.rbox.t-blue   { background: #EEF2FF; border-color: #C7D2FE; }
-.rbox.t-teal   { background: #CCFBF1; border-color: #99F6E4; }
-.rbox.t-orange { background: #FEF3C7; border-color: #FDE68A; }
-.rbox.t-purple { background: #F3E8FF; border-color: #E9D5FF; }
+.rbox .rb-val { font-size: 22px; font-weight: 700; line-height: 1.25; }
+/* 复盘四类数据：白底为主，只在左侧用一条 3px 色条区分维度 */
+.rbox.t-blue   { border-left: 3px solid var(--blue); }
+.rbox.t-teal   { border-left: 3px solid var(--teal); }
+.rbox.t-orange { border-left: 3px solid var(--amber); }
+.rbox.t-purple { border-left: 3px solid var(--purple); }
 
 .dim-row { display: grid; grid-template-columns: 84px 1fr auto; gap: 8px; align-items: center; padding: 6px 0; border-bottom: 1px dashed var(--border); font-size: 13px; }
 .dim-row:last-child { border-bottom: 0; }
 .dim-name { font-weight: 600; }
-.dim-bar { height: 8px; border-radius: 999px; background: #E2E8F0; overflow: hidden; }
-.dim-bar > i { display: block; height: 100%; background: var(--brand); }
+.dim-bar { height: 8px; border-radius: 999px; background: #EFEDF6; overflow: hidden; }
+.dim-bar > i { display: block; height: 100%; background: var(--purple); border-radius: 999px; }
 .dim-bar[data-level="good"]     > i { background: var(--teal); }
-.dim-bar[data-level="ok"]       > i { background: var(--sky); }
-.dim-bar[data-level="partial"]  > i { background: var(--orange); }
+.dim-bar[data-level="ok"]       > i { background: var(--blue); }
+.dim-bar[data-level="partial"]  > i { background: var(--amber); }
 .dim-bar[data-level="poor"]     > i { background: var(--red); }
-.dim-bar[data-level="unknown"]  > i { background: #CBD5E1; }
+.dim-bar[data-level="unknown"]  > i { background: var(--border-strong); }
 .dim-val { font-size: 12px; color: var(--text-2); min-width: 4.5em; text-align: right; }
 
 .review-sub { margin: 14px 0 6px; font-size: 13px; font-weight: 700; }
 .review-list { margin: 0; padding-left: 20px; font-size: 13px; line-height: 1.75; color: var(--text); }
 .review-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
-.ai-block { margin-top: 12px; padding: 12px; border-radius: 10px; background: #F3E8FF; border: 1px solid #E9D5FF; font-size: 13px; line-height: 1.75; }
+.ai-block { margin-top: 12px; padding: 12px; border-radius: var(--radius-sm); background: var(--purple-l); border: 1px solid #DDD5F8; font-size: 13px; line-height: 1.75; }
 .ai-block[hidden] { display: none; }
-.ai-block .ai-tag { font-size: 11px; color: var(--purple); font-weight: 800; letter-spacing: .04em; }
+.ai-block .ai-tag { font-size: 11px; color: var(--purple-ink); font-weight: 800; letter-spacing: .04em; }
 
 /* ---------- 记录列表 ---------- */
 .records { display: grid; gap: 8px; }
@@ -205,40 +298,63 @@ body {
 .empty { font-size: 13px; color: var(--text-2); padding: 10px 0; }
 
 .tip { font-size: 12px; color: var(--text-2); line-height: 1.7; margin: 10px 0 0; }
-code { background: #F1F5F9; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+code { background: var(--purple-l); color: var(--purple-ink); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
 
 .dev-row { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
-.dev-out { background: #0F172A; color: #A5F3FC; font-size: 12px; padding: 10px; border-radius: 8px; overflow: auto; max-height: 260px; white-space: pre-wrap; }
+.dev-out { background: #22202F; color: #A9E4D6; font-size: 12px; padding: 10px; border-radius: var(--radius-sm); overflow: auto; max-height: 260px; white-space: pre-wrap; }
 
 /* ---------- 页脚 ---------- */
 .aic-foot { max-width: 960px; margin: 0 auto; padding: 0 16px 32px; }
 .disc { font-size: 12px; color: var(--text-2); line-height: 1.8; background: #FFF; border: 1px solid var(--border); border-radius: 10px; padding: 12px; }
 .foot-links { margin-top: 10px; font-size: 13px; }
-.foot-links a { color: var(--brand); }
+.foot-links a { color: var(--purple-deep); }
 
 /* 手机端：画面优先、去掉次要留白 */
 @media (max-width: 480px) {
-  .aic-main { padding: 12px 12px 28px; gap: 12px; }
+  /* 页面左右留 16px，与会员端小屏口径一致 */
+  .aic-main { padding: 16px 16px 28px; gap: 12px; }
+  .aic-top { padding: 10px 16px; }
   .aic-statusbar { width: 100%; margin-left: 0; }
   .stage { max-height: none; aspect-ratio: 3 / 4; }
+  .stage-head h2 { font-size: 20px; }
   .btn { flex: 1 1 46%; }
   .stage-controls .btn { flex: 1 1 calc(50% - 4px); }
+  /* 四个摄像头控制按钮在窄屏两行放，避免挤成一排 20px 宽的点 */
+  .stage-controls { gap: 8px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn, .stage-metrics, .stage-toast { transition: none; }
 }
 
 /* ---------- 动作监测能力说明（等级 / 机位 / 能算什么 / 明确不算什么） ---------- */
 .monitor-box {
-  margin-top: 10px; border: 1px solid var(--border); border-radius: 10px;
-  background: #F8FAFC; padding: 12px;
+  margin-top: 10px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: #FBFAFD; padding: 12px;
 }
 .monitor-box[hidden] { display: none; }
 .mon-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
-.mon-level { font-size: 12px; padding: 2px 8px; border-radius: 999px; font-weight: 600; }
-.mon-level.A { background: #DCFCE7; color: #15803D; }
-.mon-level.B { background: #FEF3C7; color: #B45309; }
-.mon-level.C { background: #F1F5F9; color: #475569; }
+.mon-level { font-size: 12px; padding: 2px 8px; border-radius: 999px; font-weight: 600; border: 1px solid transparent; }
+.mon-level.A { background: var(--teal-l);  color: var(--green-ink); border-color: #B9E4D1; }
+.mon-level.B { background: var(--amber-l); color: var(--amber-ink); border-color: #EFDCB2; }
+.mon-level.C { background: #F4F3F8;        color: var(--text-3);    border-color: var(--border); }
 .mon-title { font-size: 14px; font-weight: 600; }
 .mon-note { font-size: 12px; color: var(--text-2); }
 .mon-rows { font-size: 12px; line-height: 1.7; }
 .mon-rows div { margin-top: 4px; }
 .mon-rows b { font-weight: 600; }
+
+/* 能力边界明细：默认收起，避免半屏文字把摄像头区挤下去。
+   展开态不加动画，展开本身就是反馈。 */
+.mon-more { margin-top: 8px; border-top: 1px solid var(--border); padding-top: 8px; }
+.mon-more > summary {
+  cursor: pointer; font-size: 12px; font-weight: 600; color: var(--purple-deep);
+  min-height: 32px; display: flex; align-items: center; list-style: none;
+}
+.mon-more > summary::-webkit-details-marker { display: none; }
+.mon-more > summary::before {
+  content: '\25B8'; margin-right: 6px; font-size: 11px; transition: transform var(--ease);
+}
+.mon-more[open] > summary::before { transform: rotate(90deg); }
+.mon-more > summary:focus-visible { outline: 3px solid #B9A9FA; outline-offset: 2px; border-radius: 6px; }
 .mon-list { margin: 2px 0 0; padding-left: 18px; font-size: 12px; color: var(--text-2); line-height: 1.7; }

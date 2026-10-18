@@ -11,65 +11,118 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Fitness XP 会员端</title>
+<!-- 手机添加到主屏幕后，状态栏跟着品牌色走（内联，不引入任何外部资源） -->
+<meta name="theme-color" content="#F7F7FB">
 <!-- 内联图标：避免浏览器自动请求 /favicon.ico 产生 404，同时供手机端「添加到主屏幕」使用 -->
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%237057F5'/%3E%3Ctext x='16' y='22' font-size='14' font-family='sans-serif' font-weight='700' fill='white' text-anchor='middle'%3EFX%3C/text%3E%3C/svg%3E">
-<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%237057F5'/%3E%3Ctext x='16' y='22' font-size='14' font-family='sans-serif' font-weight='700' fill='white' text-anchor='middle'%3EFX%3C/text%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%236D5CE8'/%3E%3Ctext x='16' y='22' font-size='14' font-family='sans-serif' font-weight='700' fill='white' text-anchor='middle'%3EFX%3C/text%3E%3C/svg%3E">
+<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%236D5CE8'/%3E%3Ctext x='16' y='22' font-size='14' font-family='sans-serif' font-weight='700' fill='white' text-anchor='middle'%3EFX%3C/text%3E%3C/svg%3E">
 <style>
 /* ===== css/member.css ===== */
 /* Fitness XP 会员端 — 样式
- * 视觉方向：浅色底 + 鲜明但协调的「多巴胺」强调色，手机端优先。
+ * 视觉方向：Clean Fitness UI + Subtle Playfulness —— 浅色底、低饱和、
+ * 有克制活力的专业训练工具观感。不做卡通化装饰，不堆渐变。
  *
- * 三条硬规则（改色前先看这里）：
- *   1. 页面大面积保持浅色，彩色只出现在重点卡片、进度、成就和关键操作上。
- *   2. 只有主操作用紫色实心 + 白字；其余彩色一律「浅色底 + 深色字」，
- *      因为 #36BDF2 / #36C995 这类亮色配白字对比度不足 4.5:1，读不清。
- *   3. 渐变只允许出现在局部（logo、等级徽章、XP 进度条、阶段目标），不铺满页面。
+ * 四条硬规则（改样式前先看这里）：
+ *   1. 卡片默认纯白；彩色只出现在顶部 2px 强调条、小标签、进度与关键操作上。
+ *      整卡铺色的用法只有 .m-card-hero 一种（首页「今天」），全站不超过一处。
+ *   2. 只有主操作用紫色实心 + 白字；其余彩色一律「浅底 + 深字」。
+ *      #72BCE5 / #75CBA8 / #E7C66D / #E88EA2 这类柔色配白字对比度不足 4.5:1，读不清。
+ *   3. 渐变只允许出现在 logo、等级徽章与 hero 卡三处，且只用低对比紫色渐变；不铺满页面。
+ *   4. 所有颜色引用本文件顶部的 token，不得在下面写裸色值。
  *
  * 全部选择器使用 .m- 前缀，不可能影响教练端样式。
- */
+ * ---------------------------------------------------------------------------
+ * Design Tokens 一览（会员端与 AI 教练共用同一套色值，见 03_AI教练/css/ai-coach.css）
+ *   品牌：purple #6D5CE8 / purple-deep #5144B5 / purple-l #F0EDFF / purple-ink #4C3FB2
+ *   中性：bg #F7F7FB / card #FFF / text #29263D / sub #716F82 / border #E9E8F0
+ *   柔色：blue #72BCE5 / mint #75CBA8 / amber #E7C66D / coral #E88EA2
+ *   语义：ok #247A59 / warn #8A641A / err #B63D54 / info #64748B
+ *   字号：标题 22 / 模块 16 / 正文 15 / 辅助 12–13
+ *   圆角：卡片 16 / 控件 12 / 按钮 10
+ *   触控：按钮与输入框 ≥44px；动效 120–200ms；阴影低对比、少用
+ * --------------------------------------------------------------------------- */
 :root {
-  /* ---- 主色 ---- */
-  --m-purple: #7057F5;        /* 主操作紫 */
-  --m-purple-deep: #5A40E0;   /* 主操作按下 */
-  --m-purple-l: #EEE9FF;      /* 淡紫卡 */
-  --m-purple-ink: #4B32B8;    /* 淡紫底上的文字 */
+  /* ---- 品牌 ---- */
+  --m-purple: #6D5CE8;        /* 主紫：主操作、选中态、关键进度 */
+  --m-purple-deep: #5144B5;   /* 深紫：主操作按下、深紫文字 */
+  --m-purple-l: #F0EDFF;      /* 柔紫：hero 卡、淡紫标签 */
+  --m-purple-ink: #4C3FB2;    /* 柔紫底上的文字（6.9:1） */
 
-  --m-blue: #36BDF2;          /* 活力蓝：信息与训练数据 */
-  --m-blue-l: #E3F5FF;
-  --m-blue-ink: #0B6E93;
+  /* ---- 柔色：只做浅底 + 深字，或做成小标签 ---- */
+  --m-blue: #72BCE5;          /* 柔蓝：信息与训练数据 */
+  --m-blue-l: #EDF6FC;
+  --m-blue-ink: #2A6B93;
 
-  --m-green: #36C995;         /* 薄荷绿：完成与成长 */
-  --m-green-l: #E1F8ED;
-  --m-green-ink: #0F7A57;
+  --m-green: #75CBA8;         /* 薄荷绿：完成与成长 */
+  --m-green-l: #E9F6F1;
+  --m-green-ink: #247A59;
 
-  --m-yellow: #FFD568;        /* 暖黄：挑战与提醒 */
-  --m-yellow-l: #FFF4CE;
-  --m-yellow-ink: #8A5A00;
+  --m-yellow: #E7C66D;        /* 暖黄：挑战与提醒 */
+  --m-yellow-l: #FDF6E7;
+  --m-yellow-ink: #8A641A;
 
-  --m-pink: #FF879D;          /* 珊瑚粉：活力与成就 */
-  --m-pink-l: #FFE8EF;
-  --m-pink-ink: #B4345A;
+  --m-pink: #E88EA2;          /* 珊瑚粉：成就与收藏描边 */
+  --m-pink-l: #FCEFF2;
+  --m-pink-ink: #A5455E;
+  --m-star: #C95977;          /* 收藏星（已收藏）：白底 4.1:1，故比 coral 深一档 */
+  --m-star-off: #8B7FA8;       /* 收藏星（未收藏）：灰紫，3.7:1，够看见又不抢 */
 
-  --m-red: #D93A45;           /* 危险 */
-  --m-red-l: #FFE9EB;
-  --m-red-ink: #A51F2B;
+  --m-red: #B63D54;           /* 危险 / 错误 */
+  --m-red-l: #FBEEF1;
+  --m-red-ink: #9B2C42;
+
+  /* ---- 语义状态：*-ink 是文字色，纯色只用于描边 / 图标 / 进度填充 ---- */
+  --m-ok-ink: #247A59;
+  --m-warn-ink: #8A641A;
+  --m-err-ink: #B63D54;
+  --m-info-ink: #64748B;
 
   /* ---- 中性 ---- */
-  --m-bg: #FFF9FC;
+  --m-bg: #F7F7FB;            /* 页面底：浅灰紫，不再偏粉 */
   --m-card: #FFFFFF;
   --m-text: #29263D;
-  --m-sub: #6B6480;
-  --m-border: #EFE6F5;
-  --m-border-strong: #DED2EC;
+  --m-ink: #29263D;           /* 与 --m-text 同义，历史选择器在用 */
+  --m-sub: #716F82;           /* 白底上的次级文字（4.9:1） */
+  --m-sub-ink: #605E75;       /* 彩色浅底上的次级文字（5.5:1，比 sub 深一档） */
+  --m-border: #E9E8F0;
+  --m-border-strong: #DAD7E4; /* 输入框/按钮描边 */
+
+  /* ---- 字号：一档一档用，不出现 14.5px 这类中间值 ---- */
+  --m-fs-page: 22px;          /* 页面主标题 */
+  --m-fs-section: 16px;       /* 模块标题 */
+  --m-fs-body: 15px;          /* 正文 */
+  --m-fs-sm: 13px;            /* 次要说明 */
+  --m-fs-xs: 12px;            /* 辅助 / 时间戳 */
+  --m-lh: 1.6;
+
+  /* ---- 间距：4 的倍数 ---- */
+  --m-sp-1: 4px;
+  --m-sp-2: 8px;
+  --m-sp-3: 12px;
+  --m-sp-4: 16px;
+  --m-sp-5: 20px;
+  --m-sp-6: 24px;
+  --m-gap: 12px;
+  --m-pad-page: 16px;         /* 页面左右边距 */
+  --m-pad-page-sm: 16px;      /* 手机页边距（≥16px） */
+  --m-pad-card: 16px;
+  --m-space-section: 16px;    /* 常规模块间距 */
 
   /* ---- 形状 ---- */
-  --m-radius: 16px;
-  --m-radius-sm: 10px;
+  --m-radius: 16px;           /* 卡片 */
+  --m-radius-sm: 12px;        /* 内嵌小块 / 输入框 */
+  --m-radius-btn: 10px;       /* 按钮 */
   --m-tap: 44px;              /* 最小可点高度，所有交互元素共用 */
-  --m-gap: 12px;
-  --m-shadow: 0 2px 10px rgba(41, 38, 61, .06);
-  --m-shadow-lift: 0 6px 18px rgba(112, 87, 245, .18);
+  --m-input-h: 46px;          /* 普通输入框高度 44–48 */
+
+  /* ---- 阴影：低对比，少量使用 ---- */
+  --m-shadow: 0 1px 3px rgba(41, 38, 61, .05);
+  --m-shadow-2: 0 4px 14px rgba(41, 38, 61, .08);
+  --m-shadow-lift: 0 2px 8px rgba(109, 92, 232, .16);
+
+  /* ---- 动效 ---- */
   --m-ease: .16s cubic-bezier(.4, 0, .2, 1);
+  --m-ease-slow: .2s cubic-bezier(.4, 0, .2, 1);
 }
 
 * { box-sizing: border-box; }
@@ -79,9 +132,21 @@ body {
   background: var(--m-bg);
   color: var(--m-text);
   font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Helvetica Neue", sans-serif;
-  font-size: 15px;
-  line-height: 1.6;
+  font-size: var(--m-fs-body);
+  line-height: var(--m-lh);
   -webkit-text-size-adjust: 100%;
+  /* 手机端点按不加蓝色高亮块；反馈交给 :active 自己定义 */
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* 键盘焦点统一处理：任何可被 Tab 到的元素都必须有可见描边。
+   用 :focus-visible，鼠标点击后不会残留一圈框。 */
+a:focus-visible, button:focus-visible, input:focus-visible,
+select:focus-visible, textarea:focus-visible, summary:focus-visible,
+[tabindex]:focus-visible {
+  outline: 3px solid #B9A9FA;
+  outline-offset: 2px;
+  border-radius: var(--m-radius-btn);
 }
 
 /* ---------- 顶栏 ---------- */
@@ -92,72 +157,99 @@ body {
   top: 0;
   z-index: 10;
 }
-.m-top-in { max-width: 900px; margin: 0 auto; padding: 12px 16px; }
-.m-brand { display: flex; align-items: center; gap: 12px; }
+.m-top-in { max-width: 900px; margin: 0 auto; padding: 12px var(--m-pad-page); }
+.m-brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+/* 品牌标记允许用渐变，但只用低对比紫色，避免和页面其它元素抢注意力 */
 .m-logo {
   width: 38px; height: 38px; border-radius: 11px;
-  background: linear-gradient(135deg, var(--m-purple), var(--m-blue));
+  background: linear-gradient(135deg, var(--m-purple), #8E7CF2);
   color: #fff; font-weight: 700; font-size: 14px;
   display: flex; align-items: center; justify-content: center;
   flex: none;
-  box-shadow: var(--m-shadow-lift);
 }
-.m-title { font-size: 16px; font-weight: 600; }
-.m-sub { font-size: 12px; color: var(--m-sub); }
+.m-title { font-size: var(--m-fs-section); font-weight: 600; }
+.m-sub { font-size: var(--m-fs-xs); color: var(--m-sub); }
+/* 会员名可能很长：不撑破顶栏，超出省略并给出完整值的 title（JS 已写入） */
+#mTopRight .m-chip { max-width: 40vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ---------- 容器 ---------- */
-.m-wrap { max-width: 900px; margin: 0 auto; padding: 16px; }
+.m-wrap { max-width: 900px; margin: 0 auto; padding: var(--m-pad-page); }
 
-/* ---------- 卡片 ---------- */
+/* ---------- 卡片 ----------
+   默认纯白 + 1px 浅边 + 极低阴影，同屏 8 张卡片也不会互相抢注意力。 */
 .m-card {
   background: var(--m-card);
   border: 1px solid var(--m-border);
   border-radius: var(--m-radius);
-  padding: 16px;
-  margin-bottom: 16px;
-  border-top: 3px solid var(--m-border-strong);
+  padding: var(--m-pad-card);
+  margin-bottom: var(--m-space-section);
   box-shadow: var(--m-shadow);
 }
-/* 语义卡：浅色底 + 彩色顶条。相邻卡片不会同时高饱和，久看不累。 */
-.m-card-blue { border-top-color: var(--m-blue); background: var(--m-blue-l); }
-.m-card-teal { border-top-color: var(--m-green); background: var(--m-green-l); }
-.m-card-purple { border-top-color: var(--m-purple); background: var(--m-purple-l); }
-.m-card-orange { border-top-color: var(--m-yellow); background: var(--m-yellow-l); }
+
+/* 语义卡：白色卡 + 彩色顶部强调条。
+   刻意不给卡片铺整块彩色 —— 语义色是用来「标注」的，不是用来「分区」的，
+   否则一页往下全是色块，等于没有重点。 */
+.m-card-blue   { border-top: 2px solid var(--m-blue); }
+.m-card-teal   { border-top: 2px solid var(--m-green); }
+.m-card-green  { border-top: 2px solid var(--m-green); }
+.m-card-purple { border-top: 2px solid var(--m-purple); }
+.m-card-orange { border-top: 2px solid var(--m-yellow); }
+.m-card-amber  { border-top: 2px solid var(--m-yellow); }
+.m-card-warn   { border-top: 2px solid var(--m-yellow); }
+.m-card-locked { border-top: 2px solid var(--m-border-strong); background: #FAF9FD; }
+
+/* 全站唯一的「大面积柔色」：首页「今天」主任务卡。
+   低对比紫色渐变 + 深紫文字，仍是浅色底深字，不铺 Portal 式大色块。 */
+.m-card-hero {
+  /* background-color 必须显式给出：只写 gradient 时计算值是 transparent，
+     渐变失效（或打印 / 高对比模式降级）时整块会掉成透明，露出页面底色。 */
+  background-color: var(--m-purple-l);
+  background-image: linear-gradient(180deg, var(--m-purple-l) 0%, #FFFFFF 70%);
+  border: 1px solid #DDD5F8;
+}
+.m-card-hero .m-card-h h2 { font-size: var(--m-fs-page); }
+.m-card-hero .m-sub, .m-card-hero .m-p { color: var(--m-sub-ink); }
 
 .m-card-h {
   display: flex; align-items: center; justify-content: space-between;
   gap: 8px; margin-bottom: 10px;
 }
-.m-card-h h2 { margin: 0; font-size: 15px; font-weight: 700; letter-spacing: .01em; }
+.m-card-h h2 { margin: 0; font-size: var(--m-fs-section); font-weight: 700; letter-spacing: .01em; }
+.m-card-h:empty { display: none; }
+
+/* 页面主标题：每页第一张卡的标题是这一页在说什么，给它页面级的字号。
+   不用 JS 加 class，避免为视觉再改一遍所有页面的渲染函数。 */
+#mApp > .m-card:first-child > .m-card-h > h2 { font-size: var(--m-fs-page); line-height: 1.35; }
 
 .m-pill {
-  font-size: 11px; color: var(--m-purple-ink);
-  background: #fff; border: 1px solid var(--m-purple-l);
+  font-size: var(--m-fs-xs); color: var(--m-purple-ink);
+  background: var(--m-purple-l); border: 1px solid #DDD5F8;
   border-radius: 999px; padding: 3px 10px; white-space: nowrap;
-  font-weight: 600;
+  font-weight: 600; flex: none;
 }
 .m-p { margin: 0 0 12px; color: var(--m-sub); font-size: 14px; }
-.m-list { margin: 0; padding-left: 20px; color: var(--m-sub); font-size: 13px; }
+.m-list { margin: 0; padding-left: 20px; color: var(--m-sub); font-size: var(--m-fs-sm); }
 .m-list li { margin-bottom: 4px; }
 
 code {
   background: var(--m-purple-l); border: 1px solid var(--m-border);
-  border-radius: 5px; padding: 1px 5px; font-size: 12px; color: var(--m-purple-ink);
+  border-radius: 5px; padding: 1px 5px; font-size: var(--m-fs-xs); color: var(--m-purple-ink);
 }
 
 /* ---------- 常驻安全边界声明 ---------- */
 .m-banner {
   display: block;
   background: var(--m-yellow-l);
-  border: 1px solid #F7E3A8;
+  border: 1px solid #F0E0BF;
   border-left: 4px solid var(--m-yellow);
   border-radius: var(--m-radius-sm);
-  padding: 12px 14px;
-  margin-bottom: 16px;
-  font-size: 13px;
-  color: var(--m-yellow-ink);
+  padding: 10px 12px;
+  margin-bottom: var(--m-space-section);
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--m-warn-ink);
 }
-.m-banner b { color: #6E4700; }
+.m-banner b { color: var(--m-warn-ink); }
 
 /* ---------- 存储状态格 ---------- */
 .m-stat-row {
@@ -166,15 +258,15 @@ code {
   gap: 8px;
 }
 .m-stat {
-  background: #fff;
+  background: var(--m-card);
   border: 1px solid var(--m-border);
   border-radius: var(--m-radius-sm);
   padding: 8px 10px;
 }
-.m-stat-on { background: var(--m-purple-l); border-color: #D9CEFF; }
+.m-stat-on { background: var(--m-purple-l); border-color: #DDD5F8; }
 .m-stat-n { font-size: 18px; font-weight: 700; color: var(--m-sub); }
 .m-stat-on .m-stat-n { color: var(--m-purple-ink); }
-.m-stat-l { font-size: 11px; color: var(--m-sub); word-break: break-all; }
+.m-stat-l { font-size: var(--m-fs-xs); color: var(--m-sub); word-break: break-all; }
 
 /* ================================================================
    按钮体系
@@ -192,7 +284,7 @@ code {
   min-height: var(--m-tap);
   padding: 0 16px;
   border: 1px solid var(--m-border-strong);
-  border-radius: var(--m-radius-sm);
+  border-radius: var(--m-radius-btn);
   background: var(--m-card);
   color: var(--m-text);
   font-size: 14px;
@@ -206,11 +298,11 @@ code {
               color var(--m-ease), box-shadow var(--m-ease), transform var(--m-ease);
 }
 .m-btn:hover { border-color: var(--m-purple); color: var(--m-purple-deep); }
-.m-btn:active { transform: translateY(1px); }
+.m-btn:active { transform: translateY(1px); background: #F6F4FC; }
 
 /* 键盘可见焦点。用 :focus-visible 避免鼠标点击后残留一圈描边。 */
 .m-btn:focus-visible {
-  outline: 3px solid #C9B8FF;
+  outline: 3px solid #B9A9FA;
   outline-offset: 2px;
 }
 
@@ -220,27 +312,44 @@ code {
   border-color: var(--m-purple);
   color: #fff;
   font-weight: 600;
-  box-shadow: var(--m-shadow-lift);
 }
 .m-btn-primary:hover {
   background: var(--m-purple-deep);
   border-color: var(--m-purple-deep);
   color: #fff;
 }
-.m-btn-primary:active { background: #4A32C4; }
+.m-btn-primary:active { background: #45399B; border-color: #45399B; }
 
-/* 次级：浅紫底 + 深紫字，不与主操作抢注意力 */
+/* 次级：白底 + 浅紫字，不与主操作抢注意力 */
 .m-btn-ghost {
   background: var(--m-purple-l);
-  border-color: #D9CEFF;
+  border-color: #DDD5F8;
   color: var(--m-purple-ink);
 }
-.m-btn-ghost:hover { background: #E3DBFF; border-color: var(--m-purple); color: var(--m-purple-deep); }
+.m-btn-ghost:hover {
+  background: #E7E1FF; border-color: var(--m-purple); color: var(--m-purple-deep);
+}
+.m-btn-ghost:active { background: #DCD2FF; }
 
 .m-btn-on { background: var(--m-purple); border-color: var(--m-purple); color: #fff; }
 .m-btn-on:hover { background: var(--m-purple-deep); color: #fff; }
 
-/* 危险：默认就是白底红字红边（对比度达标），hover 才变实心 */
+/* 结束型：结束并结算 / 这类「点了就收尾」的动作。
+   规范里主紫实心只留给「开始训练 / 保存计划 / 创建目标 / 开始 AI 监测」，
+   结束流程不得做成主品牌按钮 —— 用深墨色实心：
+   仍然是一颗找得到的实心按钮（它是结束区的主动作），但和主紫一眼可分。 */
+.m-btn-finish {
+  background: var(--m-text);
+  border-color: var(--m-text);
+  color: #fff;
+  font-weight: 600;
+}
+.m-btn-finish:hover { background: #3B3752; border-color: #3B3752; }
+.m-btn-finish:active { background: #211F30; border-color: #211F30; }
+.m-btn-finish:disabled { background: var(--m-border-strong); border-color: var(--m-border-strong); color: #fff; }
+
+/* 危险：默认就是白底红字红边（对比度达标），hover 才变实心。
+   刻意不做成实心：删除 / 放弃训练不该和「开始训练」一样抢眼。 */
 .m-btn-danger {
   background: #fff;
   border-color: var(--m-red);
@@ -248,12 +357,13 @@ code {
   font-weight: 600;
 }
 .m-btn-danger:hover { background: var(--m-red); border-color: var(--m-red); color: #fff; }
+.m-btn-danger:active { background: #9B2C42; border-color: #9B2C42; }
 .m-btn-danger:disabled { border-color: var(--m-border-strong); color: var(--m-sub); }
 
 /* 尺寸：xs / sm 只是字号与内距更小，高度仍守住 44px 触控底线 */
 .m-btn-lg { min-height: 52px; font-size: 16px; font-weight: 700; padding: 0 20px; }
-.m-btn-sm { min-height: var(--m-tap); padding: 0 13px; font-size: 13px; }
-.m-btn-xs { min-height: var(--m-tap); padding: 0 11px; font-size: 12px; }
+.m-btn-sm { min-height: var(--m-tap); padding: 0 13px; font-size: var(--m-fs-sm); }
+.m-btn-xs { min-height: var(--m-tap); padding: 0 11px; font-size: var(--m-fs-xs); }
 
 /* 禁用：降低不透明度 + 换光标，不只靠颜色 */
 .m-btn:disabled,
@@ -283,7 +393,7 @@ code {
   animation: m-spin .7s linear infinite;
 }
 .m-btn-loading:not(.m-btn-primary)::after {
-  border-color: rgba(112, 87, 245, .25);
+  border-color: rgba(109, 92, 232, .25);
   border-top-color: var(--m-purple);
 }
 @keyframes m-spin { to { transform: rotate(360deg); } }
@@ -296,23 +406,26 @@ code {
   box-shadow: none;
 }
 
+/* 尊重系统「减少动态效果」：去掉过渡与旋转，但保留瞬时状态色变化 */
 @media (prefers-reduced-motion: reduce) {
-  .m-btn, .m-btn-loading::after { transition: none; animation: none; }
+  .m-btn, .m-btn-loading::after, .m-tab, .m-tab2, .m-bar > i, .m-chip-x {
+    transition: none; animation: none;
+  }
 }
 
 /* ---------- 提示 ---------- */
-.m-hint { margin-top: 10px; font-size: 13px; color: var(--m-sub); min-height: 18px; }
-.m-hint.m-ok { color: var(--m-green-ink); font-weight: 500; }
-.m-hint.m-warn { color: var(--m-yellow-ink); }
-.m-hint.m-err { color: var(--m-red-ink); font-weight: 500; }
+.m-hint { margin-top: 10px; font-size: var(--m-fs-sm); color: var(--m-sub); min-height: 18px; }
+.m-hint.m-ok { color: var(--m-ok-ink); font-weight: 500; }
+.m-hint.m-warn { color: var(--m-warn-ink); }
+.m-hint.m-err { color: var(--m-err-ink); font-weight: 500; }
 
 /* ---------- 顶栏右侧 / 标签 ---------- */
 .m-top-in { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .m-top-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
 .m-chip {
   display: inline-block; padding: 3px 9px; border-radius: 999px;
-  background: var(--m-purple-l); border: 1px solid #D9CEFF;
-  font-size: 12px; color: var(--m-purple-ink); font-weight: 600;
+  background: var(--m-purple-l); border: 1px solid #DDD5F8;
+  font-size: var(--m-fs-xs); color: var(--m-purple-ink); font-weight: 600;
 }
 .m-chip-btn, .m-linkbtn {
   font: inherit; cursor: pointer;
@@ -320,8 +433,8 @@ code {
   border-radius: 999px; color: var(--m-text);
   transition: all var(--m-ease);
 }
-.m-chip-btn { padding: 6px 12px; font-size: 13px; }
-.m-linkbtn { padding: 6px 12px; font-size: 13px; background: none; border: none; color: var(--m-purple-deep); font-weight: 600; }
+.m-chip-btn { padding: 6px 12px; font-size: var(--m-fs-sm); }
+.m-linkbtn { padding: 6px 12px; font-size: var(--m-fs-sm); background: none; border: none; color: var(--m-purple-deep); font-weight: 600; }
 .m-chip-btn:hover { border-color: var(--m-purple); color: var(--m-purple-deep); }
 .m-chiprow { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
 
@@ -331,15 +444,16 @@ code {
   display: flex; background: var(--m-card);
   border-top: 1px solid var(--m-border);
   padding-bottom: env(safe-area-inset-bottom);
-  box-shadow: 0 -2px 12px rgba(41, 38, 61, .05);
+  box-shadow: 0 -1px 3px rgba(41, 38, 61, .05);
 }
 .m-tab {
   flex: 1; min-width: 0;
-  height: 54px; font: inherit; font-size: 13px;
+  height: 54px; font: inherit; font-size: var(--m-fs-sm);
   background: none; border: none; color: var(--m-sub); cursor: pointer;
   position: relative;
   transition: color var(--m-ease);
 }
+.m-tab:active { background: #F6F4FC; }
 /* 选中态不只靠颜色：顶部加一条 3px 色条，色盲用户也能分辨 */
 .m-tab-on { color: var(--m-purple-deep); font-weight: 700; }
 .m-tab-on::before {
@@ -356,38 +470,46 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
 /* ---------- 表单 ---------- */
 .m-form { display: grid; gap: 12px; margin-bottom: 12px; }
 .m-fld { display: flex; flex-direction: column; gap: 5px; }
-.m-fld > span { font-size: 13px; color: var(--m-sub); font-weight: 500; }
+.m-fld > span { font-size: var(--m-fs-sm); color: var(--m-sub); font-weight: 500; }
 /* 必填星号：用 ink 级深红。--m-red 在淡紫卡片底上只有 3.8:1，读不清。 */
 .m-req { color: var(--m-red-ink); font-weight: 700; }
 .m-fld input, .m-fld select, .m-fld textarea {
   font: inherit; width: 100%;
-  min-height: var(--m-tap); padding: 10px 12px;
+  min-height: var(--m-input-h); padding: 10px 12px;
   border: 1px solid var(--m-border-strong); border-radius: var(--m-radius-sm);
   background: var(--m-card); color: var(--m-text);
   transition: border-color var(--m-ease), box-shadow var(--m-ease);
+}
+/* 必填未过的字段：红边 + 浅红底，配合上方 .m-msg 的中文说明，不只用颜色 */
+.m-fld input.m-invalid, .m-fld select.m-invalid {
+  border-color: var(--m-red); background: var(--m-red-l);
+}
+.m-fld input.m-invalid:focus, .m-fld select.m-invalid:focus {
+  box-shadow: 0 0 0 3px #F7DDE1;
 }
 .m-fld textarea { min-height: 88px; resize: vertical; line-height: 1.6; }
 .m-fld input:focus, .m-fld select:focus, .m-fld textarea:focus {
   outline: none;
   border-color: var(--m-purple);
-  box-shadow: 0 0 0 3px #E6DEFF;
+  box-shadow: 0 0 0 3px #E2DBFF;
 }
-.m-fld input:disabled, .m-fld select:disabled { background: var(--m-bg); opacity: .6; }
-.m-tip { font-size: 12px; color: var(--m-sub); font-style: normal; }
+.m-fld input:disabled, .m-fld select:disabled { background: var(--m-bg); color: var(--m-sub); opacity: .7; }
+.m-tip { font-size: var(--m-fs-xs); color: var(--m-sub); font-style: normal; line-height: 1.5; }
 
 /* ---------- 消息条 ---------- */
-.m-msg { margin: 4px 0 10px; font-size: 13px; line-height: 1.6; min-height: 0; }
+.m-msg:empty { margin: 0; }
+.m-msg { margin: 4px 0 10px; font-size: var(--m-fs-sm); line-height: 1.6; min-height: 0; }
 .m-msg-err {
   color: var(--m-red-ink);
   background: var(--m-red-l);
-  border: 1px solid #FBC9CD;
+  border: 1px solid #F1CBD2;
   border-radius: var(--m-radius-sm);
   padding: 10px 12px;
 }
 .m-msg-ok {
   color: var(--m-green-ink);
   background: var(--m-green-l);
-  border: 1px solid #A9EBCD;
+  border: 1px solid #B9E4D1;
   border-radius: var(--m-radius-sm);
   padding: 10px 12px;
 }
@@ -395,13 +517,13 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
 /* ---------- 筛选区 ---------- */
 .m-filters { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 10px; }
 .m-filters select, .m-filters input, .m-filters button {
-  font: inherit; font-size: 13px;
-  min-height: var(--m-tap); padding: 10px;
+  font: inherit; font-size: var(--m-fs-sm);
+  min-height: var(--m-input-h); padding: 10px;
   border: 1px solid var(--m-border-strong); border-radius: var(--m-radius-sm);
   background: var(--m-card); color: var(--m-text); width: 100%;
 }
 .m-filters select:focus, .m-filters input:focus {
-  outline: none; border-color: var(--m-purple); box-shadow: 0 0 0 3px #E6DEFF;
+  outline: none; border-color: var(--m-purple); box-shadow: 0 0 0 3px #E2DBFF;
 }
 .m-filters button { cursor: pointer; }
 
@@ -410,31 +532,32 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
 .m-exitem {
   background: var(--m-card); border: 1px solid var(--m-border);
   border-radius: var(--m-radius-sm); padding: 12px 14px;
-  box-shadow: var(--m-shadow);
-  transition: border-color var(--m-ease);
+  transition: border-color var(--m-ease), box-shadow var(--m-ease);
 }
-.m-exitem:hover { border-color: var(--m-purple); }
+.m-exitem:hover { border-color: var(--m-purple); box-shadow: var(--m-shadow); }
 .m-exitem-h { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .m-extitle {
-  font: inherit; font-size: 15px; font-weight: 600; color: var(--m-purple-deep);
+  font: inherit; font-size: 15px; font-weight: 600; color: var(--m-text);
   background: none; border: none; padding: 0; cursor: pointer; text-align: left;
   min-height: var(--m-tap); flex: 1; min-width: 0;
   display: flex; align-items: center;
 }
-.m-extitle:hover { text-decoration: underline; }
-.m-exmeta { margin-top: 4px; font-size: 12px; color: var(--m-sub); }
+.m-extitle:hover { color: var(--m-purple-deep); text-decoration: underline; }
+.m-exmeta { margin-top: 4px; font-size: var(--m-fs-xs); color: var(--m-sub); }
 .m-exitem-b { margin-top: 8px; }
 .m-exitem-b .m-btn { width: auto; }
-/* 未收藏的空心星不能太淡：#CFC6DF 在白底只有 1.6:1，等于看不见。
-   这里压到 3.6:1，仍是「未激活」的观感，但视力不佳的用户能分辨出有一颗星。 */
+/* 未收藏的空心星不能太淡：太浅等于看不见。这里是「未激活」的灰紫，仍够 3.6:1。
+   刻意不用 transform 缩放做反馈：训练场景里会手抖，放大的星容易误触。 */
 .m-fav {
   font-size: 20px; line-height: 1; flex: none;
   width: var(--m-tap); height: var(--m-tap);
-  background: none; border: none; color: #8B7FA8; cursor: pointer;
-  transition: transform var(--m-ease), color var(--m-ease);
+  background: none; border: none; color: var(--m-star-off); cursor: pointer;
+  transition: color var(--m-ease);
 }
-.m-fav:hover { transform: scale(1.12); }
-.m-fav-on { color: var(--m-pink); }
+.m-fav:hover { color: var(--m-purple); }
+/* 收藏星作为图形元素至少要 3:1，纯 coral 在白底只有 2.4:1，故用深一档的 --m-star */
+.m-fav-on { color: var(--m-star); }
+.m-fav-on:hover { color: var(--m-pink-ink); }
 .m-favbig {
   font: inherit; min-height: var(--m-tap); padding: 10px 16px;
   border: 1px solid var(--m-border-strong); border-radius: var(--m-radius-sm);
@@ -442,12 +565,14 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
 }
 .m-favbig.m-fav-on { color: var(--m-pink-ink); border-color: var(--m-pink); background: var(--m-pink-l); font-weight: 600; }
 .m-empty { padding: 28px 0; text-align: center; color: var(--m-sub); font-size: 14px; }
+/* 空状态要有下一步：提示语里通常带链接，链接同样守 44px 触控 */
+.m-empty a { color: var(--m-purple-deep); font-weight: 600; }
 
 /* ---------- 详情信息表 ---------- */
 .m-dl { margin: 0; }
 .m-dlrow { display: grid; grid-template-columns: 96px 1fr; gap: 10px; padding: 7px 0; }
 .m-dlrow + .m-dlrow { border-top: 1px dashed var(--m-border); }
-.m-dlrow dt { font-size: 13px; color: var(--m-sub); }
+.m-dlrow dt { font-size: var(--m-fs-sm); color: var(--m-sub); }
 .m-dlrow dd { margin: 0; font-size: 14px; word-break: break-word; }
 
 /* ---------- 步骤 ---------- */
@@ -480,38 +605,35 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
   transform: translateX(-50%);
   z-index: 60; max-width: min(92vw, 460px);
   padding: 11px 16px; border-radius: 12px;
-  background: var(--m-text); color: #fff; font-size: 13px; line-height: 1.5;
+  background: var(--m-text); color: #fff; font-size: var(--m-fs-sm); line-height: 1.5;
   box-shadow: 0 8px 24px rgba(41, 38, 61, .24);
 }
-.m-toast-info { background: var(--m-text); }
-.m-toast-ok { background: var(--m-green-ink); }
-.m-toast-err { background: var(--m-red-ink); }
-.m-toast-warn { background: var(--m-yellow-ink); }
-
-/* ---------- 卡片语义色 ---------- */
-.m-card-green { border-top-color: var(--m-green); background: var(--m-green-l); }
-.m-card-warn { border-top-color: var(--m-yellow); background: var(--m-yellow-l); }
-.m-card-locked { background: #F7F4FB; border-top-color: var(--m-border-strong); }
+/* 四类语义各自深浅都够承白字：info 中性 / ok 深绿 / err 深红 / warn 深黄 */
+.m-toast-info { background: var(--m-info-ink); }
+.m-toast-ok { background: var(--m-ok-ink); }
+.m-toast-err { background: var(--m-err-ink); }
+.m-toast-warn { background: var(--m-warn-ink); }
 
 /* ---------- 进度条 ---------- */
 .m-bar {
   height: 10px; border-radius: 999px; overflow: hidden;
-  background: #F2ECFA; border: 1px solid var(--m-border);
+  background: #EFEDF6; border: 1px solid var(--m-border);
   margin-top: 6px;
 }
 .m-bar > i {
   display: block; height: 100%;
-  background: linear-gradient(90deg, var(--m-purple), var(--m-blue));
-  transition: width var(--m-ease);
+  background: var(--m-purple);
+  border-radius: 999px;
+  transition: width var(--m-ease-slow);
 }
 
 /* ---------- 每日任务 / 每周挑战 ---------- */
 .m-task { padding: 10px 0; }
 .m-task + .m-task { border-top: 1px dashed var(--m-border); }
 .m-task-t { font-size: 14px; font-weight: 500; }
-.m-task-v { font-size: 12px; color: var(--m-sub); margin-top: 2px; }
+.m-task-v { font-size: var(--m-fs-xs); color: var(--m-sub); margin-top: 2px; }
 .m-task-done .m-task-t { color: var(--m-green-ink); font-weight: 600; }
-.m-task-done .m-bar > i { background: linear-gradient(90deg, var(--m-green), #6FDDB4); }
+.m-task-done .m-bar > i { background: var(--m-green); }
 
 /* ---------- 通用行 ---------- */
 .m-rowitem {
@@ -521,36 +643,37 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
 .m-rowitem + .m-rowitem { border-top: 1px dashed var(--m-border); }
 .m-rowitem-t { flex: 1; min-width: 0; font-size: 14px; }
 .m-rowitem-t em {
-  font-style: normal; font-size: 12px; color: var(--m-sub); margin-left: 6px;
+  font-style: normal; font-size: var(--m-fs-xs); color: var(--m-sub); margin-left: 6px;
 }
 .m-rowitem-s { flex: none; font-size: 14px; font-weight: 700; color: var(--m-purple-deep); }
 /* 「更多」是导航入口，必须够大够好点，不能是 19px 的裸文字 */
 .m-more {
   display: inline-flex; align-items: center;
   min-height: var(--m-tap); padding: 0 2px;
-  font-size: 13px; font-weight: 600;
+  font-size: var(--m-fs-sm); font-weight: 600;
   color: var(--m-purple-deep); text-decoration: none;
 }
 .m-more:hover { text-decoration: underline; }
 
 /* ---------- 等级 / 连续 ---------- */
 .m-xpline { display: flex; align-items: center; gap: 14px; }
-/* 局部渐变：等级徽章允许用渐变，是页面里少数几处强调点 */
+/* 局部渐变：等级徽章是全站允许用渐变的少数几处之一，且只用低对比紫 */
 .m-lv {
   flex: none; width: 56px; height: 56px; border-radius: 16px;
-  background: linear-gradient(135deg, var(--m-purple), var(--m-blue));
+  background: linear-gradient(135deg, var(--m-purple), #8E7CF2);
   color: #fff; font-weight: 700; font-size: 15px;
   display: flex; align-items: center; justify-content: center;
-  box-shadow: var(--m-shadow-lift);
 }
 .m-lvinfo { flex: 1; min-width: 0; }
 .m-lvtitle { font-size: 15px; font-weight: 700; }
+/* XP 是本页唯一的「数据主角」：数字大、标签小，不套彩色卡片 */
+.m-xpline .m-bar { margin-top: 8px; }
 .m-streak {
   flex: none; text-align: center; padding-left: 12px;
   border-left: 1px solid var(--m-border);
 }
 .m-streak b { display: block; font-size: 22px; color: var(--m-green-ink); line-height: 1.1; }
-.m-streak span { font-size: 11px; color: var(--m-sub); }
+.m-streak span { font-size: var(--m-fs-xs); color: var(--m-sub); }
 
 /* ---------- 目标 ---------- */
 .m-goal-line {
@@ -558,47 +681,85 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
   gap: 10px; flex-wrap: wrap; margin-bottom: 4px;
 }
 .m-goal-line b { font-size: 15px; }
-.m-goal-line span { font-size: 13px; color: var(--m-sub); }
+.m-goal-line span { font-size: var(--m-fs-sm); color: var(--m-sub); }
 .m-stages { display: grid; gap: 10px; }
 .m-stage {
   background: #fff; border: 1px solid var(--m-border);
   border-radius: var(--m-radius-sm); padding: 10px 12px;
 }
 .m-stage-t { font-size: 14px; font-weight: 500; }
-.m-stage-done { background: var(--m-green-l); border-color: #A9EBCD; }
+.m-stage-done { background: var(--m-green-l); border-color: #B9E4D1; }
 .m-stage-done .m-stage-t { color: var(--m-green-ink); font-weight: 600; }
 
 /* ---------- 训练节奏图（近 12 周） ---------- */
 .m-rhythm { display: grid; grid-template-columns: repeat(12, 1fr); gap: 5px; }
 .m-rh {
   display: block; padding-top: 100%; border-radius: 4px;
-  background: #F2ECFA; border: 1px solid var(--m-border);
+  background: #EFEDF6; border: 1px solid var(--m-border);
 }
-.m-rh.l0 { background: #F2ECFA; }
-.m-rh.l1 { background: #DCD1FF; }
-.m-rh.l2 { background: #B49CFF; }
-.m-rh.l3 { background: #8F74FB; }
+/* 单色明度阶梯：越深练得越多，不引入第二种颜色 */
+.m-rh.l0 { background: #EFEDF6; }
+.m-rh.l1 { background: #DAD3F7; }
+.m-rh.l2 { background: #B5AAEE; }
+.m-rh.l3 { background: #8E7FE2; }
 .m-rh.l4 { background: var(--m-purple); }
-.m-rh-now { outline: 2px solid var(--m-pink); outline-offset: 1px; }
+.m-rh-now { outline: 2px solid var(--m-purple-deep); outline-offset: 1px; }
 
 /* ---------- 周计划 ---------- */
 .m-weeknav { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
 .m-day { margin-top: 12px; border-top: 1px dashed var(--m-border); padding-top: 10px; }
 .m-day-h {
-  display: flex; align-items: center; gap: 6px;
-  font-size: 13px; font-weight: 700; color: var(--m-purple-ink); margin-bottom: 6px;
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  font-size: var(--m-fs-sm); font-weight: 700; color: var(--m-purple-ink); margin-bottom: 6px;
 }
-.m-day-empty { font-size: 12px; color: var(--m-sub); padding: 4px 0 8px; }
+/* 训练日 / 休息日 / 已完成：一律白 bg + 左边一条状态色，不铺满色块 */
+.m-day-done .m-day-h { color: var(--m-ok-ink); }
+.m-day-rest .m-day-h { color: var(--m-sub); }
+.m-day-empty { font-size: var(--m-fs-xs); color: var(--m-sub); padding: 4px 0 8px; }
 .m-planitem {
-  background: #fff; border: 1px solid var(--m-border);
+  background: #FCFBFE; border: 1px solid var(--m-border);
   border-radius: var(--m-radius-sm); padding: 10px 12px; margin-bottom: 8px;
 }
-.m-planitem-t { font-size: 14px; font-weight: 500; }
+.m-planitem-t { font-size: 15px; font-weight: 600; }
 .m-planitem-t em {
-  display: block; font-style: normal; font-size: 12px;
-  color: var(--m-sub); margin-top: 2px;
+  display: block; font-style: normal; font-size: var(--m-fs-sm);
+  color: var(--m-sub); margin-top: 3px;
 }
-.m-planitem-b { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+/* 组/次/重量是这一项的关键信息：数字用主文字色加粗，单位保持次级 */
+.m-planitem-t em b { color: var(--m-text); font-weight: 700; font-size: 15px; }
+/* 组数 × 次数 × 重量 × 休息 这四个参数必须一眼读得出来：
+   数字用等宽感的字重 + 主文字色，单位降一级，不靠颜色堆叠来区分。 */
+.m-planparams {
+  display: flex; flex-wrap: wrap; gap: 4px 14px;
+  margin-top: 6px; font-size: var(--m-fs-sm); color: var(--m-sub);
+}
+.m-planparams b { color: var(--m-text); font-weight: 600; }
+/* 行内操作（↑ ↓ 改 删 加入背包）：一个动作 5 个按钮，一页 20 个动作就是 100 个「盒子」，
+   页面会被按钮边框淹没。这里去掉描边与底色，只留文字（触控区仍守 44px，不缩小），
+   鼠标悬停 / 键盘聚焦时才浮现边框，明确「这里能点」。 */
+.m-planitem-b { display: flex; flex-wrap: wrap; gap: 2px; margin-top: 6px; }
+.m-planitem-b .m-btn,
+.m-bagitem-b .m-btn {
+  background: transparent;
+  border-color: transparent;
+  color: var(--m-purple-deep);
+  font-weight: 500;
+  padding: 0 9px;
+  /* ↑ ↓ 这类单字形按钮靠内距撑不出宽度，给一个最小宽度保证好点 */
+  min-width: 38px;
+}
+.m-planitem-b .m-btn:hover,
+.m-bagitem-b .m-btn:hover {
+  background: var(--m-purple-l); border-color: #DDD5F8; color: var(--m-purple-ink);
+}
+/* 删除是这一行里唯一的破坏性操作：用红字区分，但同样不做成实心 */
+.m-planitem-b .m-btn[data-pi-del],
+.m-bagitem-b .m-btn[data-bi-del] { color: var(--m-red-ink); }
+.m-planitem-b .m-btn[data-pi-del]:hover,
+.m-bagitem-b .m-btn[data-bi-del]:hover { background: var(--m-red-l); border-color: #F1CBD2; color: var(--m-red-ink); }
+/* 「加入背包」是这一行里唯一会产生数据的操作，给它留一条分隔线 */
+.m-planitem-b .m-btn[data-pi-bag] { margin-left: 6px; border-left: 1px solid var(--m-border); border-radius: 0; }
+.m-planitem-b .m-btn[data-pi-bag]:hover { border-left-color: var(--m-border); }
 
 /* ---------- 今日背包 ---------- */
 .m-bagitem {
@@ -607,41 +768,73 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
 }
 .m-bagitem-t { font-size: 15px; font-weight: 600; }
 .m-bagitem-t em {
-  display: block; font-style: normal; font-size: 12px;
-  color: var(--m-sub); font-weight: 400; margin-top: 2px;
+  display: block; font-style: normal; font-size: var(--m-fs-sm);
+  color: var(--m-sub); font-weight: 400; margin-top: 3px;
 }
-.m-bagitem-b { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.m-bagitem-t em b { color: var(--m-text); font-weight: 700; font-size: 15px; }
+.m-bagitem-b { display: flex; flex-wrap: wrap; gap: 2px; margin-top: 6px; }
 
 /* ---------- 训练执行 ----------
-   刻意保持克制：训练中要输重量次数，彩色元素越少越好。 */
+   铁律：执行页是「输入页」，不是展示页。
+   当前动作块只用一条左侧紫色标记 + 深紫文字点出来，不铺色块、不加装饰图标；
+   所有注意力留给重量 / 次数输入框。 */
 .m-now {
-  display: flex; flex-direction: column; gap: 2px;
-  padding: 12px; border-radius: var(--m-radius-sm);
-  background: var(--m-purple-l);
-  border: 1px solid #D9CEFF;
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 4px 0 4px 12px; border-radius: var(--m-radius-sm);
+  border-left: 3px solid var(--m-purple);
+  background: none;
 }
-.m-now b { font-size: 20px; line-height: 1.3; word-break: break-word; color: var(--m-purple-ink); }
-.m-now span { font-size: 13px; color: var(--m-sub); }
-.m-setn { margin-top: 10px; font-size: 13px; color: var(--m-sub); }
-.m-setn b { color: var(--m-purple-deep); font-size: 15px; }
+.m-now b {
+  font-size: 20px; line-height: 1.35; word-break: break-word;
+  color: var(--m-text); font-weight: 700;
+}
+.m-now span { font-size: var(--m-fs-sm); color: var(--m-sub); }
+/* 组计数是当前页第二个要读的数字，比目标参数大一号，但不跟动作名抢 */
+.m-setn { margin-top: 10px; font-size: var(--m-fs-sm); color: var(--m-sub); }
+.m-setn b { color: var(--m-purple-deep); font-size: 17px; }
 .m-form-row { grid-template-columns: repeat(2, 1fr); }
+
+/* 重量 / 次数输入：整个执行页最大的两个控件。
+   输入框字号放大到 18px（数字要一眼看清），高度 52px（戴手套、手汗也好点）。 */
+.m-form-row input {
+  font-size: 18px !important; font-weight: 600;
+  min-height: 52px !important; text-align: left;
+  letter-spacing: .01em;
+}
+.m-form-row .m-fld > span { font-weight: 600; color: var(--m-text); }
+
+/* 已完成的组：统一「灰序号 + 正常正文 + 时间戳」，全部一个样式，
+   不用彩虹色区分第几组，避免用户以为颜色有业务含义。 */
 .m-setrow {
   display: flex; align-items: center; gap: 10px;
   padding: 8px 0; font-size: 14px;
 }
 .m-setrow + .m-setrow { border-top: 1px dashed var(--m-border); }
-.m-setrow > span { flex: none; font-size: 13px; color: var(--m-sub); }
-.m-setrow > b { flex: 1; min-width: 0; }
-.m-setrow > em { flex: none; font-style: normal; font-size: 11px; color: var(--m-yellow-ink); }
+.m-setrow > span { flex: none; font-size: var(--m-fs-sm); color: var(--m-sub); min-width: 3.6em; }
+.m-setrow > b { flex: 1; min-width: 0; font-weight: 600; }
+.m-setrow > em { flex: none; font-style: normal; font-size: var(--m-fs-xs); color: var(--m-sub); }
+
+/* 结束训练的卡片：危险区用浅灰边框区隔开，
+   「放弃」是唯一用红色的按钮，且与「结束并结算」不同形 */
+.m-finish-zone {
+  border-color: var(--m-border-strong);
+  background: #FBFAFD;
+}
 
 /* ---------- 结算卡 ---------- */
 .m-sumgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+/* 结算数字：白底 + 数字为主角，浅紫描边只做收纳，不给数字上色 */
 .m-sumcell {
-  background: var(--m-purple-l); border: 1px solid #D9CEFF;
-  border-radius: var(--m-radius-sm); padding: 10px 6px; text-align: center;
+  background: var(--m-card); border: 1px solid var(--m-border);
+  border-radius: var(--m-radius-sm); padding: 12px 6px; text-align: center;
 }
-.m-sumcell span { display: block; font-size: 11px; color: var(--m-purple-ink); }
-.m-sumcell b { display: block; font-size: 16px; margin-top: 2px; word-break: break-word; color: var(--m-purple-deep); }
+.m-sumcell span { display: block; font-size: var(--m-fs-xs); color: var(--m-sub); }
+.m-sumcell b { display: block; font-size: 20px; margin-top: 2px; word-break: break-word; color: var(--m-text); font-weight: 700; }
+/* 达成 / 未达成：靠数字与说明文字表达，不把整格涂红涂绿 */
+.m-sumcell-diff { grid-column: 1 / -1; }
+@media (max-width: 380px) {
+  .m-sumgrid { grid-template-columns: repeat(2, 1fr); }
+}
 
 /* ---------- 历史 ---------- */
 .m-hist {
@@ -650,11 +843,12 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
   border-radius: var(--m-radius-sm); padding: 10px 12px; margin-bottom: 8px;
   transition: border-color var(--m-ease), box-shadow var(--m-ease);
 }
-.m-hist:hover { border-color: var(--m-purple); box-shadow: var(--m-shadow); }
+.m-hist:hover { border-color: var(--m-purple); }
 .m-hist-d { font-size: 14px; font-weight: 700; }
-.m-hist-m { font-size: 12px; color: var(--m-sub); }
-.m-hist-f { font-size: 12px; color: var(--m-green-ink); margin-top: 2px; font-weight: 600; }
+.m-hist-m { font-size: var(--m-fs-xs); color: var(--m-sub); }
+.m-hist-f { font-size: var(--m-fs-xs); color: var(--m-ok-ink); margin-top: 2px; font-weight: 600; }
 .m-exblock { margin-bottom: 14px; }
+.m-exblock-sets { margin: 4px 0 0; padding-left: 18px; font-size: var(--m-fs-sm); color: var(--m-sub); }
 .m-exblock-t { font-size: 14px; font-weight: 700; margin-bottom: 4px; }
 
 /* ---------- 成长中心 ---------- */
@@ -673,46 +867,53 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
   min-height: var(--m-tap); padding: 0 16px;
   border-radius: 999px; text-decoration: none;
   background: #fff; border: 1px solid var(--m-border-strong);
-  font-size: 13px; color: var(--m-sub); cursor: pointer;
+  font-size: var(--m-fs-sm); color: var(--m-sub); cursor: pointer;
   transition: all var(--m-ease);
 }
 .m-tab2:hover { border-color: var(--m-purple); color: var(--m-purple-deep); }
+.m-tab2:active { background: var(--m-purple-l); }
 .m-tab2-on {
   background: var(--m-purple); border-color: var(--m-purple);
   color: #fff; font-weight: 700;
-  box-shadow: var(--m-shadow-lift);
 }
 .m-achv { padding: 10px 0; }
 .m-achv + .m-achv { border-top: 1px dashed var(--m-border); }
 .m-achv-n { font-size: 14px; color: var(--m-sub); }
-.m-achv-d { font-size: 12px; color: var(--m-sub); margin-top: 2px; }
-.m-achv-on .m-achv-n { color: var(--m-green-ink); font-weight: 700; }
+.m-achv-d { font-size: var(--m-fs-xs); color: var(--m-sub); margin-top: 2px; }
+.m-achv-on .m-achv-n { color: var(--m-ok-ink); font-weight: 700; }
 .m-tlitem { padding: 10px 0; }
 .m-tlitem + .m-tlitem { border-top: 1px dashed var(--m-border); }
-.m-tl-d { font-size: 11px; color: var(--m-sub); }
+.m-tl-d { font-size: var(--m-fs-xs); color: var(--m-sub); }
 .m-tl-t { font-size: 14px; }
 
 /* ---------- 阶段7：为什么慢 / 高级调整 / 时间线筛选 ----------
    沿用既有调色板：提醒用暖黄底 + 深黄字（不配白字），建议用淡紫底，
    都符合文件开头那三条硬规则。 */
 
-.m-card-amber { border-top-color: var(--m-yellow); background: var(--m-yellow-l); }
+/* 「为什么慢」允许用浅琥珀 + 提醒色描边：这是全站唯一一张暖色卡，
+   因为它是要用户改变行为的，需要和「信息」区分开。 */
+.m-card-amber {
+  border-top: 2px solid var(--m-yellow);
+  background: var(--m-yellow-l);
+  border-left: 3px solid var(--m-yellow);
+}
+.m-card-amber .m-card-h h2, .m-card-amber .m-p { color: var(--m-warn-ink); }
 .m-why { margin: 6px 0 0; padding-left: 18px; }
-.m-why li { font-size: 13.5px; color: var(--m-ink); margin: 4px 0; line-height: 1.6; }
+.m-why li { font-size: 14px; color: var(--m-warn-ink); margin: 4px 0; line-height: 1.6; }
 
 /* 依据 chips：小号浅底，不抢正文注意力，但数字要能一眼读到 */
 .m-evi { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 10px; }
 .m-evi-i {
   display: inline-flex; align-items: baseline; gap: 5px;
   background: #fff; border: 1px solid var(--m-border); border-radius: 10px;
-  padding: 5px 10px; font-size: 13px; color: var(--m-purple-ink); font-weight: 700;
+  padding: 5px 10px; font-size: var(--m-fs-sm); color: var(--m-purple-ink); font-weight: 700;
 }
-.m-evi-i i { font-size: 11px; font-style: normal; color: var(--m-sub); font-weight: 400; }
+.m-evi-i i { font-size: var(--m-fs-xs); font-style: normal; color: var(--m-sub); font-weight: 400; }
 
 /* 「我想自己定」折叠区：默认收起，避免一上来就用三个输入框压住主按钮 */
 .m-mod { margin-top: 10px; border-top: 1px dashed var(--m-border); padding-top: 8px; }
 .m-mod summary {
-  cursor: pointer; font-size: 13px; color: var(--m-purple-deep);
+  cursor: pointer; font-size: var(--m-fs-sm); color: var(--m-purple-deep);
   min-height: 34px; line-height: 34px; user-select: none;
 }
 .m-mod .m-fld { margin-top: 8px; }
@@ -721,7 +922,7 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
 /* 时间线类型筛选：比 .m-tabs 更小，不占整行 */
 .m-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 10px; }
 .m-chip-x {
-  display: inline-block; padding: 6px 11px; font-size: 13px;
+  display: inline-block; padding: 6px 11px; font-size: var(--m-fs-sm);
   border: 1px solid var(--m-border); border-radius: 999px;
   background: #fff; color: var(--m-sub); text-decoration: none;
   min-height: 34px; line-height: 20px;
@@ -735,33 +936,68 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
 @media (max-width: 480px) {
   .m-evi-i { flex: 1 1 auto; justify-content: space-between; }
 }
-.m-tl-s { font-size: 12px; color: var(--m-sub); margin-top: 2px; }
+.m-tl-s { font-size: var(--m-fs-xs); color: var(--m-sub); margin-top: 2px; }
 
 /* 趋势行：周次与「N 次 · N 组」两端对齐。沿用既有字号色板，不引入新颜色。 */
 .m-trendrow-h { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 
 /* ---------- 探索地图（#explore） ----------
-   维度格子行沿用 .m-tlitem 的分割线，只补标题栏排布与"已解锁"的淡紫底；
-   不引入新颜色，也不改 .m-tlitem 本身。 */
+   38 个格子如果每个都上一种颜色，页面会变成拼图。
+   这里只保留两种状态：已解锁（紫字 + 淡紫标签）与未解锁（灰字）；
+   两者都带文字说明，不靠颜色单独表达。 */
 .m-exrow { display: block; text-decoration: none; color: inherit; }
 .m-exrow-h { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .m-exrow-h + .m-bar { margin-top: 6px; }
-.m-pill-on { background: var(--m-purple-l); }
+.m-pill-on { background: var(--m-purple-l); border-color: #DDD5F8; }
+/* 未解锁：整行降一级灰度，让已解锁的格子自己浮出来 */
+.m-exrow-off .m-exrow-h { color: var(--m-sub); }
+.m-exrow-off .m-bar > i { background: var(--m-border-strong); }
+.m-exdone-all { margin-top: 8px; font-size: var(--m-fs-xs); color: var(--m-sub); }
+
+/* 状态标签：全站统一的小胶囊，颜色只做辅助，文字才是主信息 */
+.m-state {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: var(--m-fs-xs); font-weight: 600; line-height: 1.5;
+  padding: 2px 9px; border-radius: 999px; white-space: nowrap;
+  border: 1px solid transparent;
+}
+.m-state-on    { background: var(--m-purple-l); color: var(--m-purple-ink); border-color: #DDD5F8; }
+.m-state-ok    { background: var(--m-green-l);  color: var(--m-ok-ink);     border-color: #B9E4D1; }
+.m-state-warn  { background: var(--m-yellow-l); color: var(--m-warn-ink);   border-color: #EFDCB2; }
+.m-state-err   { background: var(--m-red-l);    color: var(--m-err-ink);    border-color: #F1CBD2; }
+.m-state-info  { background: var(--m-blue-l);   color: var(--m-blue-ink);   border-color: #CFE7F5; }
+/* off 用 --m-sub-ink 而不是 --m-sub：#716F82 落在 #F4F3F8 上只有 4.43:1，差 0.07 不过 4.5。
+   次级文字只要换到浅底，就必须是最深的那一档。 */
+.m-state-off   { background: #F4F3F8;           color: var(--m-sub-ink);    border-color: var(--m-border); }
 
 /* ---------- 首页灵感卡 ----------
-   卡片之间用虚线分隔而不是再加一层卡片，首页已经有 5 段内容，
-   再套盒子会一路滚不到底。不引入新颜色，沿用淡紫底。 */
+   灵感卡是「建议」，不是任务 —— 视觉上必须弱于今日主行动：
+   用虚线分隔而不是再套一层彩色盒子，标题 15px（比 hero 的 22px 小一档），
+   按钮只给次级样式。 */
 .m-insp + .m-insp { margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--m-border); }
 .m-insp-t { font-size: 15px; font-weight: 600; }
-.m-insp-r { font-size: 12px; color: var(--m-sub); margin-top: 4px; }
+.m-insp-r { font-size: var(--m-fs-xs); color: var(--m-sub); margin-top: 4px; }
 .m-insp-i { margin: 8px 0; }
-.m-insp-li { font-size: 13px; padding: 3px 0; }
-.m-insp-li em { font-style: normal; color: var(--m-sub); font-size: 12px; }
+.m-insp-li { font-size: var(--m-fs-sm); padding: 3px 0; }
+.m-insp-li em { font-style: normal; color: var(--m-sub); font-size: var(--m-fs-xs); }
+/* 灵感卡内的按钮：并排 50/50，不各占整行（否则 3 张卡就是 6 行按钮） */
+.m-insp .m-btn-row { gap: 8px; }
+.m-insp .m-btn-row .m-btn { flex: 1 1 calc(50% - 4px); min-width: 0; padding: 0 10px; }
+
+/* 已处理的灵感卡收成一行「已处理」：这是刻意设计，防止重复点 */
+.m-insp-done { color: var(--m-sub); }
 
 /* ---------- 小屏优化 ---------- */
 @media (max-width: 480px) {
-  .m-wrap { padding: 12px; }
+  /* 页面左右留 16px（不低于 16），竖向流保持 16px 一档 */
+  .m-wrap { padding: var(--m-pad-page-sm); }
   .m-card { padding: 14px; }
+  .m-top-in { padding: 10px var(--m-pad-page-sm); }
+  /* 训练执行页的重量 / 次数在小屏改为竖排：两个 52px 大框并排会挤到放不下数字 */
+  .m-form-row input { font-size: 18px !important; }
+  /* 页面主标题在窄屏收到 20px，长标题也不会占两行 */
+  #mApp > .m-card:first-child > .m-card-h > h2 { font-size: 20px; }
+  .m-card-hero .m-card-h h2 { font-size: 20px; }
   /* 主操作整行撑满（最好点），跟在它后面的次级按钮改为并排。
      训练页有 6 个按钮，若全部竖排会一路排到屏幕外，会员要滚很久才摸到「结束训练」。
      行内小按钮（↑↓改删）保持自适应，否则计划项 / 背包项会被撑成一列顶出横向滚动条。 */
@@ -769,13 +1005,22 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
   .m-btn-row .m-btn-primary ~ .m-btn {
     width: auto; flex: 1 1 auto; min-width: 104px;
   }
+  /* 首页主行动整行：手机上最好点，也最明确 */
+  #mApp .m-btn-lg { width: 100%; }
+  /* 灵感卡内按钮例外：两列并排，不占满整行 */
+  .m-insp .m-btn-row .m-btn { width: auto; flex: 1 1 calc(50% - 4px); min-width: 0; }
+  /* 显式两列行（例如「重置筛选 / 自建动作」）：两个按钮等宽并排，省掉一整行高度 */
+  .m-btn-row-2 { gap: 8px; }
+  .m-btn-row-2 .m-btn { width: auto; flex: 1 1 calc(50% - 4px); min-width: 0; }
   .m-planitem-b .m-btn, .m-bagitem-b .m-btn, .m-setrow .m-btn,
   .m-weeknav .m-btn, .m-tabs .m-tab2 { width: auto; }
   /* 与上面的 .m-tabs 配套：收窄内边距与间距，让 5 个 tab 在 390 宽下一行排满，不必滑动 */
   .m-tabs { gap: 5px; }
   .m-tabs .m-tab2 { padding: 0 14px; }
   .m-stat-row { grid-template-columns: repeat(3, 1fr); }
-  .m-filters { grid-template-columns: 1fr; }
+  /* 筛选控件两列：原来一列要占满一屏，用户得先滚 500px 才看到第一个动作 */
+  .m-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .m-filters #fQ, .m-filters #btnFavOnly { grid-column: 1 / -1; }
   .m-dlrow { grid-template-columns: 88px 1fr; }
   .m-form-row { grid-template-columns: 1fr; }
   .m-toast { bottom: 74px; }
@@ -783,21 +1028,24 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
 
 /* ---- AI 监测等级徽章与说明 ----
  * 规则同其他彩色元素：亮色只做浅底 + 深字，只有紫色是实心 + 白字。
- * A 级（可监测）用绿底深绿字，B 级（有限监测）用黄底深黄字，C 级用灰底灰字 ——
- * 灰底是刻意的：C 级不该看起来像"功能"，它只是"这一项没有能力"。 */
+ * A 级（可监测）绿底深绿字，B 级（有限监测）黄底深黄字，C 级灰底灰字 ——
+ * 灰底是刻意的：C 级不该看起来像「功能」，它只是「这一项没有能力」。
+ * 徽章始终带文字（A/B/C 之外还有中文说明），不只用颜色。 */
 .m-aibadge {
-  display: inline-block; font-size: 11px; font-weight: 700;
+  display: inline-block; font-size: var(--m-fs-xs); font-weight: 700;
   border-radius: 999px; padding: 3px 10px; white-space: nowrap; line-height: 1.5;
+  border: 1px solid transparent;
 }
-.m-aibadge-A { background: var(--m-green-l); color: var(--m-green-ink); border: 1px solid #B7EBD3; }
-.m-aibadge-B { background: var(--m-yellow-l); color: var(--m-yellow-ink); border: 1px solid #F2DE9C; }
-.m-aibadge-C { background: #F1EFF5; color: #6E6885; border: 1px solid #E3DEEA; }
+.m-aibadge-A { background: var(--m-green-l); color: var(--m-ok-ink); border-color: #B9E4D1; }
+.m-aibadge-B { background: var(--m-yellow-l); color: var(--m-warn-ink); border-color: #EFDCB2; }
+.m-aibadge-C { background: #F4F3F8; color: var(--m-sub); border-color: var(--m-border); }
 
 .m-airow { margin-top: 10px; }
-.m-airow b { display: block; font-size: 13px; margin-bottom: 4px; }
-.m-ailist { margin: 0; padding-left: 18px; font-size: 13px; color: var(--m-sub); }
+.m-airow b { display: block; font-size: var(--m-fs-sm); margin-bottom: 4px; }
+.m-ailist { margin: 0; padding-left: 18px; font-size: var(--m-fs-sm); color: var(--m-sub); }
 .m-ailist li { margin-bottom: 3px; }
-.m-ailist-no li { color: #8A5A00; }
+/* 「明确不算什么」这一项必须是负向、可读的深黄字，不能做浅色弱化 */
+.m-ailist-no li { color: var(--m-warn-ink); }
 
 </style>
 </head>
@@ -12714,7 +12962,9 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
 
     return ''
       /* 1. 今日主行动 */
-      + '<section class="m-card m-card-blue">'
+      /* 「今天」是全站唯一用柔色底的卡（.m-card-hero）：
+         打开应用第一眼要看到的只有「今天练什么」，其余卡片一律白底往后退。 */
+      + '<section class="m-card m-card-hero">'
       + '<div class="m-card-h"><h2>今天</h2><span class="m-pill">' + today() + '</span></div>'
       + '<p class="m-p">你好，<b>' + esc(p.name || ctx.member_id) + '</b>'
       + (act.tip ? '，' + esc(act.tip) : '') + '。</p>'
@@ -13104,9 +13354,10 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
         muscleOptions('primary_muscles').map(function (m) { return [m, m]; }), q.muscle) + '</select>'
       + '<select id="fMuscle2">' + sel('全部辅助肌群',
         muscleOptions('secondary_muscles').map(function (m) { return [m, m]; }), q.muscle2) + '</select>'
+      /* 选项文案刻意短：手机两列布局下，长文案会被 select 截断成半截 */
       + '<select id="fAi">' + sel('全部 AI 监测', [
-        ['yes', '仅看支持监测（A/B）'], ['A', 'A 级 · AI 可监测'],
-        ['B', 'B 级 · 有限监测'], ['C', 'C 级 · 暂不支持']
+        ['yes', '支持监测 (A/B)'], ['A', 'A 级 · 可监测'],
+        ['B', 'B 级 · 有限'], ['C', 'C 级 · 不支持']
       ], q.ai) + '</select>'
       + '<input id="fQ" type="search" placeholder="搜索名称 / 别名 / 肌群" value="' + esc(q.q || '') + '">'
       + '<button class="m-btn m-btn-ghost' + (q.fav ? ' m-btn-on' : '')
@@ -13114,8 +13365,9 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
       + '</div>'
       + (fl.blocked
         ? '<p class="m-hint m-warn">按你的伤病禁忌已屏蔽 ' + fl.blocked + ' 个动作。</p>' : '')
-      + '<div class="m-btn-row"><button class="m-btn" id="btnResetFilter">重置筛选</button>'
-      + '<button class="m-btn m-btn-primary" id="btnNewExercise">+ 自建动作</button></div>'
+      /* 这两颗都是次级操作：主紫实心只留给「开始训练 / 保存计划 / 开始 AI 监测」这类主任务 */
+      + '<div class="m-btn-row m-btn-row-2"><button class="m-btn" id="btnResetFilter">重置筛选</button>'
+      + '<button class="m-btn" id="btnNewExercise">+ 自建动作</button></div>'
       + '</section>'
       + '<div id="exList" class="m-exlist">'
       + (list.length
@@ -13148,7 +13400,9 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
         }).join('')
         : '<div class="m-empty">' + (q.fav
           ? '你还没有收藏任何动作。点列表里的 ☆ 即可收藏。'
-          : '没有符合条件的动作。') + '</div>')
+          : '没有符合条件的动作。可以放宽筛选，或者直接清空条件。')
+          + '<div class="m-btn-row" style="justify-content:center">'
+          + '<button class="m-btn m-btn-ghost" id="btnEmptyReset">清空全部筛选</button></div></div>')
       + '</div>';
   }
 
@@ -13263,6 +13517,9 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
     if (reset) reset.addEventListener('click', function () { location.hash = '#exercises'; });
     var ne = $('btnNewExercise');
     if (ne) ne.addEventListener('click', function () { openNewExercise(); });
+    /* 空状态里的重置按钮：和顶部「重置筛选」同一行为，只是离用户更近，不必滚回页面顶部 */
+    var er = $('btnEmptyReset');
+    if (er) er.addEventListener('click', function () { location.hash = '#exercises'; });
 
     var list = $('exList');
     if (list) {
@@ -13349,8 +13606,19 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
         tip = document.createElement('div');
         tip.id = 'exEmptyTip';
         tip.className = 'm-empty';
-        tip.textContent = '这个关键词在当前筛选条件下没有匹配。清空搜索可看全部。';
+        tip.innerHTML = '<p class="m-p">这个关键词在当前筛选条件下没有匹配。</p>'
+          + '<div class="m-btn-row" style="justify-content:center">'
+          + '<button class="m-btn m-btn-ghost" id="btnClearKw">清空搜索词</button></div>';
         box.appendChild(tip);
+        /* 清空后焦点还给搜索框：手机键盘不收起，可以接着换词 */
+        var cb = document.getElementById('btnClearKw');
+        if (cb) cb.addEventListener('click', function () {
+          var input = $('fQ');
+          if (!input) return;
+          input.value = '';
+          applySearchInPlace('');
+          input.focus();
+        });
       }
       tip.hidden = false;
     } else if (tip) {
@@ -13938,16 +14206,23 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
       for (var d = 1; d <= 7; d++) {
         var dayList = items.filter(function (it) { return +it.day_of_week === d; })
           .sort(function (a, b) { return (+a.order_index) - (+b.order_index); });
-        html += '<div class="m-day"><div class="m-day-h">' + dayName(d)
-          + (d === jsDayToPlanDay(new Date().getDay()) ? ' <span class="m-pill">今天</span>' : '') + '</div>';
+        /* 日头写成「周一」而不是单个字「一」：单字在长列表里扫不出星期几。
+           右侧补一个训练日 / 休息日状态词，不只看有没有动作块来猜。 */
+        html += '<div class="m-day' + (dayList.length ? '' : ' m-day-rest') + '">'
+          + '<div class="m-day-h">周' + dayName(d)
+          + (d === jsDayToPlanDay(new Date().getDay()) ? ' <span class="m-pill">今天</span>' : '')
+          + ' <span class="m-state ' + (dayList.length ? 'm-state-on' : 'm-state-off') + '">'
+          + (dayList.length ? dayList.length + ' 个动作' : '休息') + '</span></div>';
         if (!dayList.length) {
-          html += '<div class="m-day-empty">休息</div>';
+          html += '<div class="m-day-empty">这一天没有排动作（休息）。</div>';
         } else {
           html += dayList.map(function (it) {
             return '<div class="m-planitem">'
               + '<div class="m-planitem-t">' + esc(it.exercise_name_snapshot)
-              + '<em>' + esc(it.target_sets) + ' 组 × ' + esc(it.target_reps) + ' 次'
-              + (it.target_weight ? ' · ' + esc(it.target_weight) + 'kg' : '') + '</em></div>'
+              /* 数字加粗、单位降级：训练参数要能扫读。
+                 刻意不重排结构 —— 渲染出的文本仍严格是「N 组 × N 次 · Nkg」。 */
+              + '<em><b>' + esc(it.target_sets) + '</b> 组 × <b>' + esc(it.target_reps) + '</b> 次'
+              + (it.target_weight ? ' · <b>' + esc(it.target_weight) + '</b>kg' : '') + '</em></div>'
               + (locked ? '' : '<div class="m-planitem-b">'
                 + '<button class="m-btn m-btn-xs" data-pi-up="' + esc(it.plan_item_id) + '">↑</button>'
                 + '<button class="m-btn m-btn-xs" data-pi-dn="' + esc(it.plan_item_id) + '">↓</button>'
@@ -14122,8 +14397,10 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
           + items.map(function (it, i) {
             return '<div class="m-bagitem">'
               + '<div class="m-bagitem-t">' + (i + 1) + '. ' + esc(it.exercise_name_snapshot)
-              + '<em>' + esc(it.target_sets) + ' 组 × ' + esc(it.target_reps) + ' 次'
-              + (it.target_weight ? ' · ' + esc(it.target_weight) + 'kg' : '') + '</em></div>'
+              /* 数字加粗、单位降级：训练参数要能扫读。
+                 刻意不重排结构 —— 渲染出的文本仍严格是「N 组 × N 次 · Nkg」。 */
+              + '<em><b>' + esc(it.target_sets) + '</b> 组 × <b>' + esc(it.target_reps) + '</b> 次'
+              + (it.target_weight ? ' · <b>' + esc(it.target_weight) + '</b>kg' : '') + '</em></div>'
               + '<div class="m-bagitem-b">'
               + '<button class="m-btn m-btn-xs" data-bi-up="' + esc(it.bag_item_id) + '">↑</button>'
               + '<button class="m-btn m-btn-xs" data-bi-dn="' + esc(it.bag_item_id) + '">↓</button>'
@@ -14342,7 +14619,7 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
       + (prev ? esc(prev.reps) : (cur ? esc(cur.target_reps) : '')) + '"></label>'
       + '</div>'
       + '<div class="m-btn-row">'
-      + '<button class="m-btn m-btn-primary" id="btnLogSet">完成本组</button>'
+      + '<button class="m-btn m-btn-primary m-btn-lg" id="btnLogSet">完成本组</button>'
       + (prev ? '<button class="m-btn m-btn-ghost" id="btnCopyPrev">复制上一组</button>' : '')
       + (sets.length ? '<button class="m-btn m-btn-ghost" id="btnUndoSet">撤销上一组</button>' : '')
       + '</div><div class="m-hint" id="wMsg"></div>'
@@ -14355,7 +14632,9 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
             + '<em>' + esc(String(x.logged_at).slice(11, 16)) + '</em></div>';
         }).join('') + '</section>' : '')
 
-      + '<section class="m-card"><div class="m-card-h"><h2>结束训练</h2></div>'
+      /* 结束区单独一张卡 + 灰底分区：与上方的「记录这一组」拉开距离，
+         避免连记几组后手滑点到「结束并结算」/「放弃这次训练」。 */
+      + '<section class="m-card m-finish-zone"><div class="m-card-h"><h2>结束训练</h2></div>'
       + '<div class="m-form"><label class="m-fld"><span>这次练得怎么样 <b class="m-req">*</b></span>'
       + '<select id="wFeeling">'
       + opt(['', 'great', 'good', 'normal', 'tired', 'pain'],
@@ -14364,7 +14643,9 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
       + '<p class="m-hint" id="wPainTip" hidden>如果疼痛持续或加重，请停止训练并咨询医生或教练。'
       + '这里只做安全提示，不做任何诊断。</p>'
       + '<div class="m-btn-row">'
-      + '<button class="m-btn m-btn-primary" id="btnFinish">结束并结算</button>'
+      /* 结束并结算不是「主操作」：主紫实心只留给开练类动作，
+         这里用深墨色实心，避免和上方「完成本组」连成一片紫色。 */
+      + '<button class="m-btn m-btn-finish" id="btnFinish">结束并结算</button>'
       + (s.status === 'paused'
         ? '<button class="m-btn" id="btnResume">继续计时</button>'
         : '<button class="m-btn m-btn-ghost" id="btnPause">暂停</button>')
@@ -14953,7 +15234,9 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
               + ' <em>' + esc(it.sets) + ' 组 × ' + esc(it.reps) + ' 次</em></div>';
           }).join('') + '</div>'
           + '<div class="m-btn-row">'
-          + '<button class="m-btn m-btn-sm m-btn-primary" data-insp="' + esc(c.code)
+          /* 卡内动作一律用次级样式：灵感卡是「建议」，
+             主紫实心只留给首页「今天」那一处，否则一屏会出现 6 个大紫按钮。 */
+          + '<button class="m-btn m-btn-sm m-btn-ghost" data-insp="' + esc(c.code)
           + '" data-insp-act="bag">加入今日背包</button>'
           + '<button class="m-btn m-btn-sm" data-insp="' + esc(c.code)
           + '" data-insp-act="plan"' + (hasPlan ? '' : ' disabled') + '>排进本周计划</button>'
@@ -15118,7 +15401,8 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
     var rows = (d.keys || []).filter(function (k) { return lvMatch(k, lv); }).map(function (k) {
       /* 这里的局部名不能也叫 lv：外层参数 lv 是筛选档位，同名会把两个意思糊在一起 */
       var lvNum = k.level || 0;
-      return '<a class="m-tlitem m-exrow" href="#explore?dim=' + encodeURIComponent(d.key)
+      /* 未解锁的格子整行降一级灰度：亮起来的自然是本页重点，不必给每格上色 */
+      return '<a class="m-tlitem m-exrow' + (lvNum ? '' : ' m-exrow-off') + '" href="#explore?dim=' + encodeURIComponent(d.key)
         + '&key=' + encodeURIComponent(k.key) + '">'
         + '<div class="m-exrow-h"><span class="m-tl-t">' + esc(k.label) + '</span>'
         + '<span class="m-pill' + (lvNum ? ' m-pill-on' : '') + '">'

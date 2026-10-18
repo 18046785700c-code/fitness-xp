@@ -541,25 +541,36 @@
       + '<span class="mon-level ' + lv + '">' + lv + ' 级 · ' + esc(C.LEVEL_TEXT[lv]) + '</span>'
       + '<span class="mon-title">' + esc(rules ? rules.exerciseLabel : currentType) + '</span>'
       + '</div>'
-      + '<div class="mon-note">' + esc(C.LEVEL_NOTE[lv]) + '</div>'
-      + '<div class="mon-rows">';
-    if (m.view) h += '<div><b>建议机位：</b>' + esc(m.view) + '</div>';
+      + '<div class="mon-note">' + esc(C.LEVEL_NOTE[lv]) + '</div>';
+
+    /* 机位与「必须可见」是开练前就要照着摆位的信息，永远摊开显示。 */
+    var setup = '';
+    if (m.view) setup += '<div><b>建议机位：</b>' + esc(m.view) + '</div>';
     if (m.mustVisible && m.mustVisible.length) {
-      h += '<div><b>必须可见：</b>' + esc(m.mustVisible.join('、')) + '</div>';
+      setup += '<div><b>必须可见：</b>' + esc(m.mustVisible.join('、')) + '</div>';
     }
-    h += '<div><b>本动作可以算出：</b></div><ul class="mon-list">'
+    if (setup) h += '<div class="mon-rows">' + setup + '</div>';
+
+    /* 「能算什么 / 不算什么 / 已知限制」三张清单在手机端能占半屏，会把摄像头区
+       挤出主视觉。等级结论与机位已经常显，明细收进 details —— 内容一条不删，
+       只是从「默认展开」改成「按需展开」。 */
+    var detail = ''
+      + '<div><b>本动作可以算出：</b></div><ul class="mon-list">'
       + (m.measurable || []).map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('')
-      + '</ul>';
-    h += '<div><b>明确不算（不会给出结论）：</b></div><ul class="mon-list">'
+      + '</ul>'
+      + '<div><b>明确不算（不会给出结论）：</b></div><ul class="mon-list">'
       + (m.notMeasurable || []).map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('')
       + '</ul>';
     if (m.limitations && m.limitations.length) {
-      h += '<div><b>已知限制：</b></div><ul class="mon-list">'
+      detail += '<div><b>已知限制：</b></div><ul class="mon-list">'
         + m.limitations.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('')
         + '</ul>';
     }
-    if (m.notes) h += '<div class="mon-note">' + esc(m.notes) + '</div>';
-    h += '</div>';
+    if (m.notes) detail += '<div class="mon-note">' + esc(m.notes) + '</div>';
+    h += '<details class="mon-more">'
+      + '<summary>能力边界明细（能算什么 / 不算什么）</summary>'
+      + '<div class="mon-rows">' + detail + '</div>'
+      + '</details>';
     els.monitorBox.innerHTML = h;
     syncDevAngleField();
   }
