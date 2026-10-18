@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#3563E9">
+<title>Fitness XP — AI 动作教练（徒手深蹲原型）</title>
+<link rel="icon" href="../app/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="css/ai-coach.css">
+</head>
+<body>
+
+<header class="aic-top">
+  <div class="aic-brand">Fitness XP <span class="ver">AI 动作教练</span></div>
+  <div class="aic-statusbar" id="aicStatus">
+    <span class="pill" id="pillCam" data-level="off">摄像头：未开启</span>
+    <span class="pill" id="pillModel" data-level="off">姿态识别：未加载</span>
+    <span class="pill" id="pillSession" data-level="off">训练：未开始</span>
+  </div>
+  <a class="aic-back" href="../index.html">← 返回教练端</a>
+</header>
+
+<main class="aic-main">
+
+  <!-- ========== 1. 摄像头区 ========== -->
+  <section class="card card-stage">
+    <div class="stage-head">
+      <h2>徒手深蹲 · 实时画面</h2>
+      <span class="hint" id="stageHint">摄像头未开启</span>
+    </div>
+
+    <div class="stage" id="stage">
+      <video id="aicVideo" playsinline muted autoplay hidden></video>
+      <canvas id="aicCanvas"></canvas>
+
+      <div class="stage-overlay" id="stageOverlay">
+        <div class="ov-icon">📷</div>
+        <div class="ov-title" id="ovTitle">尚未开启摄像头</div>
+        <div class="ov-text" id="ovText">
+          开启后，画面会<strong>只在本机浏览器内处理</strong>，不录制、不上传、不写入磁盘。
+        </div>
+        <div class="ov-actions" id="ovActions"></div>
+      </div>
+
+      <!-- 实时提示条：训练时唯一需要看的一句话 -->
+      <div class="stage-toast" id="stageToast" hidden></div>
+
+      <!-- 右侧悬浮计数 -->
+      <div class="stage-metrics" id="stageMetrics" hidden>
+        <div class="metric"><span class="m-num" id="mTotal">0</span><span class="m-lab">识别次数</span></div>
+        <div class="metric"><span class="m-num" id="mValid">0</span><span class="m-lab">有效次数</span></div>
+        <div class="metric"><span class="m-num" id="mScore">—</span><span class="m-lab">上次评分</span></div>
+        <div class="metric"><span class="m-num" id="mPhase">—</span><span class="m-lab">当前阶段</span></div>
+      </div>
+    </div>
+
+    <div class="stage-controls">
+      <button type="button" id="btnCam" class="btn primary">开启摄像头</button>
+      <button type="button" id="btnStart" class="btn good" disabled>开始训练</button>
+      <button type="button" id="btnEnd" class="btn warn" disabled>结束训练</button>
+      <button type="button" id="btnStopCam" class="btn ghost" disabled>关闭摄像头</button>
+    </div>
+
+    <div class="notice" id="camNotice" hidden></div>
+  </section>
+
+  <!-- ========== 2. 设置：会员 / 声音 / AI 代理 ========== -->
+  <section class="card">
+    <h2>本次设置</h2>
+    <div class="grid-2">
+      <label class="field">
+        <span class="f-lab">会员标识</span>
+        <select id="selMember"><option value="test:local">测试用户（不关联会员）</option></select>
+        <span class="f-tip">仅用于给记录打标识。会员名单从教练端本地数据<strong>只读</strong>读取，不回写。</span>
+      </label>
+      <label class="field">
+        <span class="f-lab">提示音</span>
+        <select id="selSound">
+          <option value="off" selected>关闭（默认）</option>
+          <option value="on">开启（每完成一次响一下）</option>
+        </select>
+        <span class="f-tip">声音可随时关闭；一次低评分<strong>不会扣除任何 XP</strong>。</span>
+      </label>
+    </div>
+
+    <details class="adv">
+      <summary>AI 复盘（DeepSeek Flash）代理设置</summary>
+      <div class="adv-body">
+        <p class="adv-note">
+          前端直连模型供应商会把密钥暴露在浏览器里，因此本原型<strong>不保存也不会请求任何 API Key</strong>，
+          只接受你<strong>自己的服务端代理地址</strong>。未配置代理时，训练结束后会显示「AI 复盘尚未启用」，
+          本地评分与记录不受任何影响。
+        </p>
+        <div class="grid-2">
+          <label class="field">
+            <span class="f-lab">代理地址（http/https）</span>
+            <input type="url" id="inpEndpoint" placeholder="https://your-server.example.com/ai/review">
+          </label>
+          <label class="field">
+            <span class="f-lab">模型名</span>
+            <input type="text" id="inpModel" value="deepseek-chat">
+          </label>
+        </div>
+        <div class="adv-actions">
+          <label class="chk"><input type="checkbox" id="chkAI"> 启用 AI 复盘</label>
+          <button type="button" id="btnSaveAI" class="btn mini">保存设置</button>
+        </div>
+        <div class="adv-state" id="aiState"></div>
+      </div>
+    </details>
+  </section>
+
+  <!-- ========== 3. 复盘 ========== -->
+  <section class="card" id="cardReview" hidden>
+    <h2>本次训练复盘</h2>
+    <div id="reviewBody"></div>
+    <div class="review-actions">
+      <button type="button" id="btnAIReview" class="btn mini">请求 AI 复盘</button>
+      <button type="button" id="btnSaveRecord" class="btn mini primary">保存本次记录</button>
+    </div>
+    <div class="ai-block" id="aiBlock" hidden></div>
+  </section>
+
+  <!-- ========== 4. 历史记录 ========== -->
+  <section class="card">
+    <div class="card-head-row">
+      <h2>本地记录</h2>
+      <div>
+        <button type="button" id="btnExport" class="btn mini">导出 CSV</button>
+        <button type="button" id="btnClear" class="btn mini danger-ghost">清空记录</button>
+      </div>
+    </div>
+    <div id="recordsBody" class="records"></div>
+    <p class="tip">记录保存在本机浏览器的独立存储空间（键名 <code>fxp-ai-coach</code>），与教练端的
+      <code>fxp-workspace</code> <strong>互不相通、不会自动同步</strong>；跨设备请使用上方「导出 CSV」。</p>
+  </section>
+
+  <!-- ========== 5. 开发用：合成数据 ========== -->
+  <details class="card dev">
+    <summary>开发调试：合成关键点数据（非真实识别）</summary>
+    <div class="adv-body">
+      <p class="adv-note">
+        这里用<strong>人工构造的虚拟关键点序列</strong>驱动分析引擎，仅用于在没有摄像头时验证算法与测试脚本。
+        <strong>用它跑通不代表真实摄像头下的识别已经验证成功。</strong>
+      </p>
+      <div class="dev-row">
+        <label class="field inline">
+          <span class="f-lab">动作次数</span>
+          <input type="number" id="devReps" value="3" min="1" max="20">
+        </label>
+        <label class="field inline">
+          <span class="f-lab">最深膝角</span>
+          <input type="number" id="devAngle" value="85" min="60" max="150">
+        </label>
+        <label class="chk"><input type="checkbox" id="devLowVis"> 低置信度</label>
+        <button type="button" id="btnDevRun" class="btn mini">跑一遍</button>
+      </div>
+      <pre class="dev-out" id="devOut"></pre>
+    </div>
+  </details>
+
+</main>
+
+<footer class="aic-foot">
+  <div class="disc" id="disclaimer"></div>
+  <div class="foot-links">
+    <a href="../index.html">返回教练端仪表盘</a>
+  </div>
+</footer>
+
+<script src="js/aic-config.js"></script>
+<script src="js/aic-analyze.js"></script>
+<script src="js/aic-feedback.js"></script>
+<script src="js/aic-review.js"></script>
+<script src="js/aic-ai.js"></script>
+<script src="js/aic-store.js"></script>
+<script src="js/aic-pose.js"></script>
+<script src="js/aic-page.js"></script>
+</body>
+</html>

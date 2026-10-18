@@ -1,0 +1,19 @@
+{
+  "name": "Fitness XP V1 会员活跃度管理",
+  "short_name": "Fitness XP",
+  "description": "健身房会员活跃度与留存管理（经营端，本地零后端）",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#F5F7FB",
+  "theme_color": "#3563E9",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
