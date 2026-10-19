@@ -22,7 +22,8 @@
 
   /* 「质量合格」原来是薄荷绿，容易和会员端「练完」抢语义。
      按全局分工改判：监测质量 ok / A 级一律走数据蓝；薄荷绿留给「成长 / 连续」这一类。
-     本页没有「本次训练练完」的结算态，所以不引入 done 红——真要加，色值与会员端 --m-done 相同。 */
+     本页没有「本次训练练完」的结算态，所以不引入 done 色——真要加，色值与会员端 --m-done 相同
+     （现为橙红 #E05252，浅底 #FDEDEA + 深字 #A23429）。 */
   --teal: #75CBA8;            /* 薄荷绿：成长 / 连续，不代表练完 */
   --teal-l: #E9F6F1;
   --green-ink: #247A59;
@@ -198,8 +199,13 @@ select:focus-visible, summary:focus-visible, [tabindex]:focus-visible {
 
 /* 开始训练是本页唯一的主操作：实心 + 白字只留给品牌紫，不再是实心底绿。
    （旧注释写「要和主紫区分开」，实际上主操作就该是主紫，区分靠文案与位置。） */
-.btn.good { background: var(--purple); border-color: var(--purple); color: #fff; }
-.btn.good:hover { background: var(--purple-deep); border-color: var(--purple-deep); color: #fff; }
+/* 「开始训练」用深墨实心，不用品牌紫：
+   紫是本页的链接/选中/品牌色，主按钮再抢紫会让「哪里能点」失去唯一焦点；
+   深墨与舞台深底同族，在页面上是最重的一块，点进去的动作一眼可见。 */
+.btn.good { background: var(--text); border-color: var(--text); color: #fff; }
+.btn.good:hover { background: #3B3752; border-color: #3B3752; color: #fff; }
+.btn.good:active { background: #211F30; border-color: #211F30; }
+.btn.good:disabled { background: var(--border-strong); border-color: var(--border-strong); color: #fff; }
 /* 「结束训练」用深黄实心而不是灰：它是有终态的动作，但不能误做成主紫 */
 .btn.warn { background: var(--amber-ink); border-color: var(--amber-ink); color: #fff; }
 .btn.warn:hover { background: #6E5014; border-color: #6E5014; color: #fff; }

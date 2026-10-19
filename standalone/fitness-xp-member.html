@@ -37,8 +37,8 @@
  *   中性：bg #F4F6F8 / card #FFF / text #29263D / sub #716F82 / border #E9E8F0
  *   柔色：blue #6FB0D8 / mint #75CBA8 / amber #E7C66D / coral #E88EA2
  *   语义分工（改色前务必先确认语义，别只看颜色好看）：
- *     完成 / 练完 / 结算成功 → done 红 #C14E68（浅底 #FDEFF2 + 深字 #962A4C）
- *     删除 / 放弃 / 错误     → danger 红 #B63D54（比 done 更深，两者不混用）
+ *     完成 / 练完 / 结算成功 → done 橙红 #E05252（浅底 #FDEDEA + 深字 #A23429）
+ *     删除 / 放弃 / 错误     → danger 红 #B63D54（更偏洋红、更深，与 done 橙红区分开）
  *     数据 / 监测 / 进行中   → blue #6FB0D8
  *     成长 / 连续 / 探索点亮 → mint #75CBA8（不代表「本次练完」）
  *     提醒 / 挑战 / 待处理   → amber #E7C66D
@@ -65,11 +65,13 @@
   --m-green-l: #E9F6F1;
   --m-green-ink: #247A59;
 
-  /* 完成态 = 红（练完 / 已完成训练 / 结算成功）。
-     危险红 --m-red 更深一档，避免「练完」与「删除 / 放弃」抢同一支红。 */
-  --m-done: #C14E68;
-  --m-done-l: #FDEFF2;
-  --m-done-ink: #962A4C;      /* 浅红底上的文字 6.9:1，白底上 7.7:1 */
+  /* 完成态 = 橙红（练完 / 已完成训练 / 结算成功）。
+     偏暖的运动橙红 #E05252 —— 比正红更有「刚练完」的热度，又不至于像警告色。
+     危险红 --m-red 更偏洋红且更深，避免「练完」与「删除 / 放弃」抢同一支红。 */
+  --m-done: #E05252;
+  --m-done-l: #FDEDEA;
+  --m-done-ink: #A23429;      /* 浅橙底上的文字 6.04:1，白底上 6.86:1 */
+  --m-done-border: #F6C9C2;   /* done 浅底块件的描边，别再用粉色 */
 
   --m-yellow: #E7C66D;        /* 暖黄：挑战与提醒 */
   --m-yellow-l: #FDF6E7;
@@ -88,7 +90,7 @@
 
   /* ---- 语义状态：*-ink 是文字色，纯色只用于描边 / 图标 / 进度填充 ----
      ok = 完成 / 成功，跟随上面那套 done 红；不再是绿色。 */
-  --m-ok-ink: #962A4C;
+  --m-ok-ink: #A23429;
   --m-warn-ink: #8A641A;
   --m-err-ink: #B63D54;
   --m-info-ink: #64748B;
@@ -416,7 +418,7 @@ code {
 }
 @keyframes m-spin { to { transform: rotate(360deg); } }
 
-/* 完成 / 成功：浅红底 + 深红字（用户指定「练完 = 红」。
+/* 完成 / 成功：浅橙底 + 深橙红字（用户指定「练完 = 橙红」。
    实心 + 白字那套仍然只给主操作，成功态继续走浅底深字） */
 .m-btn-done {
   background: var(--m-done-l) !important;
@@ -528,7 +530,7 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
 .m-msg-ok {
   color: var(--m-done-ink);
   background: var(--m-done-l);
-  border: 1px solid #F5CBD6;
+  border: 1px solid var(--m-done-border);
   border-radius: var(--m-radius-sm);
   padding: 10px 12px;
 }
@@ -984,7 +986,7 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
   border: 1px solid transparent;
 }
 .m-state-on    { background: var(--m-purple-l); color: var(--m-purple-ink); border-color: #DDD5F8; }
-.m-state-ok    { background: var(--m-done-l);  color: var(--m-done-ink);   border-color: #F5CBD6; } /* 完成 / 成功 */
+.m-state-ok    { background: var(--m-done-l);  color: var(--m-done-ink);   border-color: var(--m-done-border); } /* 完成 / 成功 */
 .m-state-warn  { background: var(--m-yellow-l); color: var(--m-warn-ink);   border-color: #EFDCB2; }
 .m-state-err   { background: var(--m-red-l);    color: var(--m-err-ink);    border-color: #F1CBD2; }
 .m-state-info  { background: var(--m-blue-l);   color: var(--m-blue-ink);   border-color: #CFE7F5; }
