@@ -8654,6 +8654,11 @@
     syncStreak: syncStreak,
     playerType: playerType,
 
+    /* 只读：暴露给 UI 用于「今日已达上限」类提示等场景。
+       任何发放逻辑请继续走 settleSession / evaluateDaily / evaluateWeekly，
+       不要因为能直接读 CONFIG 就绕过算法。 */
+    CONFIG: MBR_CONFIG,
+
     snapshot: snapshot,
     restore: restore,
     hashStr: hashStr,
@@ -11390,8 +11395,11 @@
     }
     var right = $('mTopRight');
     if (right) {
+      /* 名字可能很长：CSS 已经做了 max-width + ellipsis，这里补 title，
+         让人能把截断的名字看全（CSS 注释里说的 title 就是这一处）。 */
       right.innerHTML = ctx.verified
-        ? '<span class="m-chip">' + esc(ctx.name || ctx.member_id) + '</span>'
+        ? '<span class="m-chip" title="' + esc(ctx.name || ctx.member_id) + '">'
+          + esc(ctx.name || ctx.member_id) + '</span>'
           + '<button class="m-linkbtn" id="btnLogout">切换会员</button>'
         : '';
     }
@@ -11496,7 +11504,7 @@
     var st = gate ? gate.state() : { locked: false, remainSec: 0 };
     var list = store.all('m_profiles');
     return ''
-      + '<section class="m-card m-card-teal">'
+      + '<section class="m-card m-card-blue">'
       + '<div class="m-card-h"><h2>身份核验</h2>'
       + '<span class="m-pill">' + list.length + ' 位会员本机已存</span></div>'
       + '<p class="m-p">用于区分训练记录的归属，<b>不是登录鉴权</b>。</p>'
@@ -11870,7 +11878,8 @@
       + (act.kind === 'quick'
         ? '<button class="m-btn m-btn-primary m-btn-lg" id="btnQuickStart">' + act.label + '</button>'
         : '<a class="m-btn m-btn-primary m-btn-lg" href="' + act.href + '">' + act.label + '</a>')
-      + (en.enrolled ? '<p class="m-hint m-ok">已关联教练端会员 ' + esc(en.coach_member_id) + '</p>' : '')
+      /* 「已关联教练端」是状态说明，不是「练完」——不再套用 m-ok（现在等于完成态红） */
+      + (en.enrolled ? '<p class="m-hint">已关联教练端会员 ' + esc(en.coach_member_id) + '</p>' : '')
       + '</section>'
 
       /* 2. 需要优先处理 */
@@ -12098,7 +12107,7 @@
       + '<div class="m-msg" id="pfMsg"></div>'
       + '<div class="m-btn-row"><button class="m-btn m-btn-primary" id="btnSaveProfile">保存档案</button></div>'
       + '</section>'
-      + '<section class="m-card ' + (en.enrolled ? 'm-card-teal' : '') + '">'
+      + '<section class="m-card ' + (en.enrolled ? 'm-card-blue' : '') + '">'
       + '<div class="m-card-h"><h2>与教练端的关联</h2></div>'
       + (en.enrolled
         ? '<p class="m-p m-ok">已加入教练端（会员号 <code>' + esc(en.coach_member_id) + '</code>'
@@ -12225,7 +12234,7 @@
     list = list.filter(function (e) { return e.deprecated !== 'Y'; });
 
     return ''
-      + '<section class="m-card m-card-teal">'
+      + '<section class="m-card m-card-blue">'
       + '<div class="m-card-h"><h2>动作库</h2>'
       + '<span class="m-pill" id="exCount">共 ' + list.length + ' 个</span></div>'
       + '<div class="m-filters">'
@@ -12659,6 +12668,11 @@
       + '<div class="m-card-h"><h2>AI 监测</h2>'
       + '<span class="m-aibadge m-aibadge-' + c.level + '">' + esc(c.text) + '</span></div>'
       + (c.note ? '<p class="m-hint">' + esc(c.note) + '</p>' : '')
+      /* C 级（未接入监测）补一行中性引导：不说医疗建议，只说「还能怎么用」。 */
+      + (c.level === 'C'
+        ? '<p class="m-hint">这个动作靠摄像头算不准，但一样能练：按平常那样手动记重量 / 次数 / 组数就行；'
+          + '如果你想要计数和角度反馈，可以在动作库里挑同肌群、标注为可监测的相近动作。</p>'
+        : '')
       + '<dl class="m-dl">'
       + row('监测键', ex.ai_monitor_type || '（未接入）')
       + (c.view ? row('建议机位', c.view) : '')
@@ -12765,7 +12779,7 @@
       + '<div class="m-hint" id="mLoadMsg"></div>'
       + '</section>'
 
-      + '<section class="m-card m-card-teal">'
+      + '<section class="m-card m-card-blue">'
       + '<div class="m-card-h"><h2>导出</h2></div>'
       + '<p class="m-p">把本机会员端数据导出为 19 个 CSV（Excel 可直接打开）。</p>'
       + '<div class="m-btn-row">'
@@ -13631,6 +13645,11 @@
         return;
       }
       persist();
+      /* 练完了但一分没发：多半是今日经验已到上限。不提示的话，用户只会以为结算坏了。
+         这里只解释原因，不碰结算的发放逻辑与上限数值。 */
+      if (st.capped && !(+st.gained > 0)) {
+        toast('训练已结算，但今天的经验已经到上限了 —— 这次不计 XP，次日 0 点恢复', 'warn', 7000);
+      }
       go('#summary/' + s.session_id);
     });
 
@@ -13671,7 +13690,7 @@
     var recs = store.all('m_records').filter(function (x) { return x.session_id === s.session_id; });
 
     return ''
-      + '<section class="m-card m-card-green"><div class="m-card-h"><h2>训练完成</h2>'
+      + '<section class="m-card m-card-done"><div class="m-card-h"><h2>训练完成</h2>'
       + '<span class="m-pill">' + esc(sm.session_date) + '</span></div>'
       + '<div class="m-sumgrid">'
       + sumCell('训练时长', Math.floor(sm.duration_sec / 60) + ' 分 ' + (sm.duration_sec % 60) + ' 秒')
@@ -13693,7 +13712,7 @@
           }).join('') + '</section>'
         : '')
 
-      + '<section class="m-card m-card-teal"><div class="m-card-h"><h2>本次获得 XP</h2>'
+      + '<section class="m-card m-card-done"><div class="m-card-h"><h2>本次获得 XP</h2>'
       + '<span class="m-pill">+' + total + '</span></div>'
       + (led.length
         ? led.map(function (x) {
@@ -13702,6 +13721,7 @@
             + '<div class="m-rowitem-s">' + (x.points > 0 ? '+' : '') + x.points + '</div></div>';
         }).join('')
         : '<p class="m-p">本次没有发放 XP。</p>')
+      + xpCapHint(total)
       + '<p class="m-hint">每一条都对应流水里的一行，可以在设置页导出后逐条核对。</p>'
       + '<div class="m-btn-row"><button class="m-btn m-btn-sm" id="btnRetrySettle">重试结算</button></div>'
       + '</section>'
@@ -13732,6 +13752,21 @@
   }
   function feelingName(f) {
     return { great: '很轻松', good: '还不错', normal: '一般', tired: '有点累', pain: '有疼痛或不适' }[f] || '未填写';
+  }
+
+  /* 今日经验上限提示。
+     只解释「为什么这次是 0 分」，不改任何结算逻辑与数值：触到单日上限时整条 XP 都不发，
+     页面看上去就成了「练完了却没加分」。告诉用户上限已到，比让他以为出错要好。
+     上限值从 XP.CONFIG 读，不在页面里写死 300。 */
+  function xpCapHint(totalGained) {
+    try {
+      var lim = XP.CONFIG && XP.CONFIG.limits;
+      if (!lim || !lim.perDay) return '';
+      if (+totalGained > 0) return '';
+      if (XP.dayXp(store, ctx.member_id, today()) < lim.perDay) return '';
+    } catch (e) { return ''; }
+    return '<p class="m-hint m-warn">今天的经验已经到上限了：这次训练照常记录、照常进历史，'
+      + '只是这一天不再发放 XP，次日 0 点恢复。</p>';
   }
 
   function bindSummary(r) {
@@ -14138,11 +14173,11 @@
           + '<button class="m-btn m-btn-sm m-btn-ghost" data-insp="' + esc(c.code)
           + '" data-insp-act="bag">加入今日背包</button>'
           + '<button class="m-btn m-btn-sm" data-insp="' + esc(c.code)
-          + '" data-insp-act="plan"' + (hasPlan ? '' : ' disabled') + '>排进本周计划</button>'
+          + '" data-insp-act="plan"' + (hasPlan ? '' : ' disabled') + '>排进今天的计划</button>'
           + '</div>'
           + '</div>';
       }).join('')
-      + (hasPlan ? '' : '<p class="m-hint">这一周还没有计划，所以「排进本周计划」先锁着——'
+      + (hasPlan ? '' : '<p class="m-hint">这一周还没有计划，所以「排进今天的计划」先锁着——'
         + '系统不会替你凭空造一份计划。去<a href="#plan">计划页</a>生成后就能用了。</p>')
       + '</section>';
   }
@@ -14233,7 +14268,7 @@
               + '<div class="m-insp-r">加入了 ' + (r.added || []).length + ' 个动作'
               + (skipped ? '，' + skipped + ' 个已在里面跳过' : '') + '。</div>';
           }
-          toast(act === 'bag' ? '已加入今日背包' : '已排进本周计划', 'ok');
+          toast(act === 'bag' ? '已加入今日背包' : '已排进今天的计划', 'ok');
           return true;
         }, act === 'bag' ? '已加入背包' : '已排进计划');
       });

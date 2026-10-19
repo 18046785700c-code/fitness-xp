@@ -16,11 +16,14 @@
   --purple-l: #F0EDFF;
   --purple-ink: #4C3FB2;
 
-  --blue: #72BCE5;
+  --blue: #6FB0D8;            /* 柔蓝：数据与监测（与会员端同值） */
   --blue-l: #EDF6FC;
   --blue-ink: #2A6B93;
 
-  --teal: #75CBA8;            /* 薄荷绿：完成 */
+  /* 「质量合格」原来是薄荷绿，容易和会员端「练完」抢语义。
+     按全局分工改判：监测质量 ok / A 级一律走数据蓝；薄荷绿留给「成长 / 连续」这一类。
+     本页没有「本次训练练完」的结算态，所以不引入 done 红——真要加，色值与会员端 --m-done 相同。 */
+  --teal: #75CBA8;            /* 薄荷绿：成长 / 连续，不代表练完 */
   --teal-l: #E9F6F1;
   --green-ink: #247A59;
 
@@ -32,7 +35,7 @@
   --red-l: #FBEEF1;
   --red-ink: #9B2C42;
 
-  --bg: #F7F7FB;
+  --bg: #F4F6F8;              /* 页面底：冷浅灰，与会员端同一底色 */
   --card: #FFFFFF;
   --text: #29263D;
   --text-2: #716F82;
@@ -97,7 +100,8 @@ select:focus-visible, summary:focus-visible, [tabindex]:focus-visible {
   content: ''; width: 6px; height: 6px; border-radius: 50%;
   background: currentColor; flex: none;
 }
-.pill[data-level="ok"]    { background: var(--teal-l);  color: var(--green-ink); border-color: #B9E4D1; }
+/* 这里的 ok = 「本次动作质量合格」，属于监测数据，不是「练完」，所以用蓝不用绿 */
+.pill[data-level="ok"]    { background: var(--blue-l);  color: var(--blue-ink);  border-color: #CFE7F5; }
 .pill[data-level="warn"]  { background: var(--amber-l); color: var(--amber-ink); border-color: #EFDCB2; }
 .pill[data-level="error"] { background: var(--red-l);   color: var(--red-ink);   border-color: #F1CBD2; }
 .pill[data-level="off"]   { background: #F4F3F8;        color: var(--text-3); }
@@ -158,7 +162,7 @@ select:focus-visible, summary:focus-visible, [tabindex]:focus-visible {
 }
 /* 每条提示都带状态字前缀（JS 已写入），颜色只是第二重表达 */
 .stage-toast[data-level="warn"]     { background: rgba(138,100,26,.96); }
-.stage-toast[data-level="good"]     { background: rgba(36,122,89,.96); }
+.stage-toast[data-level="good"]     { background: rgba(42,107,147,.96); } /* 质量合格 → 蓝 */
 .stage-toast[data-level="advisory"] { background: rgba(42,107,147,.96); }
 .stage-toast[hidden] { display: none; }
 
@@ -192,9 +196,10 @@ select:focus-visible, summary:focus-visible, [tabindex]:focus-visible {
 .btn.primary:hover { background: var(--purple-deep); border-color: var(--purple-deep); color: #fff; }
 .btn.primary:disabled:hover { background: var(--purple); color: #fff; }
 
-/* 「开始训练」用深绿实心：它是本页的 affirm 动作，但要和紫色主操作区分开 */
-.btn.good { background: var(--green-ink); border-color: var(--green-ink); color: #fff; }
-.btn.good:hover { background: #1C5F45; border-color: #1C5F45; color: #fff; }
+/* 开始训练是本页唯一的主操作：实心 + 白字只留给品牌紫，不再是实心底绿。
+   （旧注释写「要和主紫区分开」，实际上主操作就该是主紫，区分靠文案与位置。） */
+.btn.good { background: var(--purple); border-color: var(--purple); color: #fff; }
+.btn.good:hover { background: var(--purple-deep); border-color: var(--purple-deep); color: #fff; }
 /* 「结束训练」用深黄实心而不是灰：它是有终态的动作，但不能误做成主紫 */
 .btn.warn { background: var(--amber-ink); border-color: var(--amber-ink); color: #fff; }
 .btn.warn:hover { background: #6E5014; border-color: #6E5014; color: #fff; }
@@ -251,7 +256,7 @@ select.field-error, .field input.field-error { border-color: var(--red); backgro
 .adv-note { font-size: 12.5px; color: var(--text-2); line-height: 1.7; margin: 0 0 10px; }
 .adv-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
 .adv-state { margin-top: 8px; font-size: 12.5px; }
-.adv-state.ok   { color: var(--green-ink); }
+.adv-state.ok   { color: var(--blue-ink); }   /* 姿态质量合格 = 监测数据，不是「练完」 */
 .adv-state.bad  { color: var(--red-ink); }
 .adv-state.warn { color: var(--amber-ink); }
 .card.dev { border-style: dashed; }
@@ -266,6 +271,7 @@ select.field-error, .field input.field-error { border-color: var(--red); backgro
 .rbox .rb-val { font-size: 22px; font-weight: 700; line-height: 1.25; }
 /* 复盘四类数据：白底为主，只在左侧用一条 3px 色条区分维度 */
 .rbox.t-blue   { border-left: 3px solid var(--blue); }
+/* 四个复盘框只是数据维度的色条区分（识别/有效/置信度/质量），teal 在这里不承担「完成」含义 */
 .rbox.t-teal   { border-left: 3px solid var(--teal); }
 .rbox.t-orange { border-left: 3px solid var(--amber); }
 .rbox.t-purple { border-left: 3px solid var(--purple); }
@@ -275,7 +281,7 @@ select.field-error, .field input.field-error { border-color: var(--red); backgro
 .dim-name { font-weight: 600; }
 .dim-bar { height: 8px; border-radius: 999px; background: #EFEDF6; overflow: hidden; }
 .dim-bar > i { display: block; height: 100%; background: var(--purple); border-radius: 999px; }
-.dim-bar[data-level="good"]     > i { background: var(--teal); }
+.dim-bar[data-level="good"]     > i { background: var(--blue); }  /* 质量合格 = 监测蓝，让位给「练完=红」 */
 .dim-bar[data-level="ok"]       > i { background: var(--blue); }
 .dim-bar[data-level="partial"]  > i { background: var(--amber); }
 .dim-bar[data-level="poor"]     > i { background: var(--red); }
@@ -335,7 +341,8 @@ code { background: var(--purple-l); color: var(--purple-ink); padding: 1px 5px; 
 .monitor-box[hidden] { display: none; }
 .mon-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
 .mon-level { font-size: 12px; padding: 2px 8px; border-radius: 999px; font-weight: 600; border: 1px solid transparent; }
-.mon-level.A { background: var(--teal-l);  color: var(--green-ink); border-color: #B9E4D1; }
+/* A 级 = 「可监测、质量可信」，是能力等级不是完成状态 → 与会员端 .m-aibadge-A 同为数据蓝 */
+.mon-level.A { background: var(--blue-l);  color: var(--blue-ink);  border-color: #CFE7F5; }
 .mon-level.B { background: var(--amber-l); color: var(--amber-ink); border-color: #EFDCB2; }
 .mon-level.C { background: #F4F3F8;        color: var(--text-3);    border-color: var(--border); }
 .mon-title { font-size: 14px; font-weight: 600; }

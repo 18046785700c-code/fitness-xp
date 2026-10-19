@@ -1510,6 +1510,11 @@
     syncStreak: syncStreak,
     playerType: playerType,
 
+    /* 只读：暴露给 UI 用于「今日已达上限」类提示等场景。
+       任何发放逻辑请继续走 settleSession / evaluateDaily / evaluateWeekly，
+       不要因为能直接读 CONFIG 就绕过算法。 */
+    CONFIG: MBR_CONFIG,
+
     snapshot: snapshot,
     restore: restore,
     hashStr: hashStr,
