@@ -1227,9 +1227,17 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
 }
 .m-tsum li:last-child { border-bottom: none; }
 .m-tsum li em { font-style: normal; flex: none; color: var(--m-sub-ink); font-size: var(--m-fs-xs); }
-/* 完成态：降对比度、不铺全量，让「今日已完成」按钮成为唯一焦点 */
-.m-tsum-done li { border-bottom: none; padding: 4px 0; }
+/* 完成态：降对比度、不铺全量，让「今日已完成」按钮成为唯一焦点。
+   15 轮：这一行是「今日 N 个动作」的入口（整行可点 → 该次训练总结），
+   所以淡化归淡化，触控区仍要 ≥44px——弱化视觉不等于弱化可点性。 */
+.m-tsum-done li { border-bottom: none; padding: 0; }
+.m-tsum-done li a {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  min-height: 44px; padding: 12px 0;
+  color: var(--m-sub-ink); text-decoration: none;
+}
 .m-tsum-done, .m-tsum-done li span { color: var(--m-sub-ink); }
+.m-tsum-done li em { font-style: normal; flex: none; color: var(--m-sub-ink); font-size: var(--m-fs-xs); }
 /* 进行中已记组数：弱文本一行，不占按钮位（纯读） */
 .m-tsum-note { margin: 10px 0 -6px; font-size: var(--m-fs-xs); color: var(--m-sub-ink); }
 

@@ -11708,12 +11708,18 @@
       return { kind: 'paused', label: '查看计划', href: '#plan', tip: '训练暂停到 ' + prof.pause_until };
     }
 
-    var doneToday = store.all('m_sessions').some(function (s) {
-      return s.member_id === ctx.member_id && s.status === 'completed'
-        && s.session_date === today();
-    });
-    if (doneToday) {
-      return { kind: 'done', label: '今日已完成', href: '#growth', tip: '今天已经练完了' };
+    /* 14 轮补丁（15 轮）：done 态原本只判断「有没有」，按钮一律指 #growth（成长中心），
+       等于一个不能说明任何事的装饰按钮；而清单的 N 又取自 draft 背包 / 计划项——
+       练完时背包必然已是 confirmed（startFromBag 写的），计划项也未必有，
+       于是「今日 N 个动作」恒为 0、整行不渲染，完成态只剩一片空白。
+       改为：**锁定今天最近一条已完成会话**，按钮与摘要行都指向它的结算页 #summary/:id，
+       N 也从这条会话的 m_sets 里数——数字与点进去看到的内容必须是同一件事。 */
+    var doneSess = todayCompletedSessions()[0];
+    if (doneSess) {
+      return {
+        kind: 'done', label: '今日已完成', href: '#summary/' + doneSess.session_id,
+        sessionId: doneSess.session_id, tip: '今天已经练完了'
+      };
     }
 
     /* 关于 confirmed 背包（V2.7 决策一，按真实状态语义核对过）：
@@ -11824,6 +11830,30 @@
 
   /** JS 的 getDay()（0=周日）→ m_plan_items.day_of_week（1=周一） */
   function jsDayToPlanDay(jsDay) { return jsDay === 0 ? 7 : jsDay; }
+
+  /** 今天已完成的会话，最近的排最前（一天练多次时以最后一次为准）。纯读。 */
+  function todayCompletedSessions() {
+    return store.all('m_sessions').filter(function (s) {
+      return s.member_id === ctx.member_id && s.status === 'completed'
+        && s.session_date === today();
+    }).sort(function (a, b) {
+      return String(b.ended_at || b.started_at).localeCompare(String(a.ended_at || a.started_at));
+    });
+  }
+
+  /**
+   * 一条会话里实际练过的动作数（m_sets 按 exercise_id 去重）。
+   * 完成态「今日 N 个动作」的真值来源——不能用背包 / 计划项，练完时它们都是空的或不准。
+   */
+  function sessionExerciseCount(sessionId) {
+    var seen = {}, n = 0;
+    SES.setsOf(store, sessionId).forEach(function (r) {
+      var k = r.exercise_id || r.exercise_name_snapshot;
+      if (!k || seen[k]) return;
+      seen[k] = 1; n++;
+    });
+    return n;
+  }
 
   /** 当前未结束的会话（in_progress / paused），最近开始的那条。今日态判定与进度读数共用。 */
   function liveSession() {
@@ -12082,16 +12112,25 @@
   function todayPreviewHtml(act) {
     if (act.kind !== 'resume' && act.kind !== 'start'
       && act.kind !== 'plan' && act.kind !== 'done') return '';
-    var rows = todayPreview();
-    if (!rows.length) return '';
     /* 决策 D：进行中只读显示已记组数（SES.setsOf 现成可读），零写库 */
     var head = (act.kind === 'resume' && act.sessionId)
       ? '<p class="m-tsum-note">已记 ' + SES.setsOf(store, act.sessionId).length + ' 组</p>'
       : '';
+    /* done（决策 B，15 轮做实）：不铺全量，只给淡化一行「今日 N 个动作」。
+       N 必须来自**今天已完成会话里实际练过的动作**——用 rows.length 是错的：
+       练完后 draft 背包已转 confirmed、计划项也可能没有，那会算出 0、整行消失，
+       完成态就剩一片空白。整行可点，去向与主按钮一致（#summary/:id），不是死文本。 */
     if (act.kind === 'done') {
+      var n = act.sessionId ? sessionExerciseCount(act.sessionId) : 0;
+      if (!n) return head;   /* 真没练过动作就不摆空行 */
       return head + '<ul class="m-tsum m-tsum-done" aria-label="今日动作">'
-        + '<li><span>今日 ' + rows.length + ' 个动作</span></li></ul>';
+        + '<li><a href="' + act.href + '"><span>今日 ' + n + ' 个动作</span>'
+        + '<em>看总结</em></a></li></ul>';
     }
+    /* 其余态才依赖背包 / 计划项。注意这句早退必须排在 done **之后**：
+       done 的数不来自这里，若先早退，没排计划的人练完就会整行消失、又是那片空白。 */
+    var rows = todayPreview();
+    if (!rows.length) return head;
     var li = rows.map(function (r) {
       return '<li><span>' + esc(r.name || '') + '</span>'
         + '<em>' + esc(String(r.sets || '-')) + ' 组 × ' + esc(String(r.reps || '-')) + ' 次'
@@ -12129,9 +12168,11 @@
       /* 决策 A：主文案「今天 · 周几」，日期退到 pill。课表感来自周几，不是日期。 */
       + '<div class="m-card-h"><h2>今天 · 周' + dayName(jsDayToPlanDay(new Date().getDay()))
       + '</h2><span class="m-pill">' + today() + '</span></div>'
-      /* 一句状态：问候 + 当前档位合成一句自然话。
-         以前是「你好，××（状态），tip。」——括号夹一句、逗号再挂一段，读起来像系统日志。 */
-      + '<p class="m-p">你好，<b>' + esc(p.name || ctx.member_id) + '</b>，'
+      /* 一句状态：只说当下这一件事，不再寒暄。
+         15 轮：「你好，××，tip。」里的「你好」是空话，删掉；但**会员名保留**——
+         首页要能认出「这是谁的训练」（audit-flow B-1 的验收点），身份不是寒暄。
+         于是状态句收成「××，今天已经练完了。」——比原来短，信息一个没少。 */
+      + '<p class="m-p"><b>' + esc(p.name || ctx.member_id) + '</b>，'
       + esc(act.tip || '') + '。</p>'
       /* 今日清单：全量 + 卡片内滚动（14 轮）。有安排才渲染，无安排不出现空壳。 */
       + todayPreviewHtml(act)
