@@ -473,6 +473,8 @@ code {
 
 /* ---------- 提示 ---------- */
 .m-hint { margin-top: 10px; font-size: var(--m-fs-sm); color: var(--m-sub); min-height: 18px; }
+/* V2.7 后补丁：计划页档案轻提示——独立于卡片的单行，补一个底部间距即可 */
+.m-plan-profile { margin-bottom: 10px; }
 .m-hint.m-ok { color: var(--m-ok-ink); font-weight: 500; }
 .m-hint.m-warn { color: var(--m-warn-ink); }
 .m-hint.m-err { color: var(--m-err-ink); font-weight: 500; }
@@ -12897,6 +12899,16 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
     if (todayPlanItems().length) {
       return { kind: 'plan', label: '今日安排', href: '#plan', tip: '今天已安排，还没开始' };
     }
+    /* V2.7 后补丁：今日曾有会话被放弃（status='abandoned' 且 session_date 是今天）时，
+       状态句如实告知。session_date 在建会话时写死、abandon 不改日期（fxp-member-session.js:187/527），
+       所以「session_date===今天」=「今天开始过、没练完」，可靠；跨午夜放弃的按开始日算，不猜。
+       纯读：不复活背包、不调 startFromBag、不写任何字段。completed 在上面已接住，两者不冲突。 */
+    var cutToday = store.all('m_sessions').some(function (s) {
+      return s.member_id === ctx.member_id && s.status === 'abandoned' && s.session_date === today();
+    });
+    if (cutToday) {
+      return { kind: 'quick', label: '自由训练', href: '#quick', tip: '上次训练未完成，可以重新开练' };
+    }
     return { kind: 'quick', label: '自由训练', href: '#quick', tip: '今天还没安排' };
   }
 
@@ -12907,7 +12919,10 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
     var prof = store.find('m_profiles', ctx.member_id) || {};
     var needProfile = prof.onboarding_done !== 'Y';
     switch (act.kind) {
-      case 'done':    return { label: '训练历史', href: '#history' };
+      /* V2.7 后补丁：done 态唯一次要链给「再练一局」——纯导航到 #quick，
+         不调 startQuick（会话只在用户点 #quick 页的「直接开始」时创建）。
+         训练历史不再占首页次要链，入口仍在「我的 → 训练历史」。 */
+      case 'done':    return { label: '再练一局', href: '#quick' };
       case 'start':   return needProfile
         ? { label: '完善档案（可稍后）', href: '#profile' }
         : { label: '改计划', href: '#plan' };
@@ -13509,12 +13524,19 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
       + '<section class="m-card">'
       + '<div class="m-card-h"><h2>AI 姿势辅助</h2><span class="m-pill">训练辅助</span></div>'
       + '<p class="m-p">' + esc(aiCoachCapLine()) + '</p>'
+      /* 职责分工：AI 只管「摄像头看姿势」，查动作 / 今日安排 / 记训练都在会员端自己的页面 */
+      + '<p class="m-p">要查动作、看今日安排和记录训练：用<b>动作库 / 今日</b>；'
+      + '要通过摄像头辅助观察姿势：用<b>AI 姿势辅助</b>。</p>'
       + '<ul class="m-list">'
       + '<li>只依据<b>人体关键点</b>做姿势辅助；<b>不识别</b>重量、杠铃/哑铃、器械与配重，重量与次数请手动记录。</li>'
       + '<li>不承诺识别伤病，<b>不做医疗诊断</b>；结果只用于训练反馈参考。</li>'
       + '<li>摄像头需要<b>安全上下文</b>：在 https 或 localhost 下打开才能调用；'
       + '用 file:// 直接打开时，浏览器可能拿不到视频流。</li>'
       + '<li>实际支持范围以本页列表为准——没列出的动作不做监测声明，按手动记录用。</li>'
+      /* 数据边界（V2.7 后补丁）：AI 教练页写它自己的本机存储，会员端从不读写它，
+         也不把 AI 记录算进训练历史或 XP。只陈述现状，不承诺保留策略。 */
+      + '<li><b>AI 训练记录保存在 AI 教练页本机数据中</b>，不会自动写入会员端训练历史，'
+      + '也不会自动增加会员端 XP。</li>'
       + '</ul>'
       + '</section>'
 
@@ -14507,6 +14529,12 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
       /* 08 轮：待办清单与「为什么慢」从首页搬到计划页。
          09 轮：两者合成一条可折叠摘要——计划页第一眼必须是本周计划本身。 */
       + planBriefHtml()
+      /* V2.7 后补丁：档案未完善时的一行静态轻提示（方案 A，用户拍板）——
+         不用弹窗、不阻断、不新增 localStorage 状态，档案完善后整行消失；
+         「去完善」只跳 #profile，不自动生成计划、不改任何数据。 */
+      + (prof.onboarding_done === 'Y' ? ''
+        : '<p class="m-hint m-plan-profile">补全训练档案后，生成的计划会更贴合你的训练目标。'
+          + '<a href="#profile">去完善 →</a></p>')
       + '<section class="m-card m-card-blue"><div class="m-card-h"><h2>本周训练计划</h2>'
       + '<span class="m-pill">' + week + ' 起</span></div>'
       + '<div class="m-weeknav">'

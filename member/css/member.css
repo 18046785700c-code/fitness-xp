@@ -453,6 +453,8 @@ code {
 
 /* ---------- 提示 ---------- */
 .m-hint { margin-top: 10px; font-size: var(--m-fs-sm); color: var(--m-sub); min-height: 18px; }
+/* V2.7 后补丁：计划页档案轻提示——独立于卡片的单行，补一个底部间距即可 */
+.m-plan-profile { margin-bottom: 10px; }
 .m-hint.m-ok { color: var(--m-ok-ink); font-weight: 500; }
 .m-hint.m-warn { color: var(--m-warn-ink); }
 .m-hint.m-err { color: var(--m-err-ink); font-weight: 500; }
