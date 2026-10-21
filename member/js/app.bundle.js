@@ -11370,7 +11370,7 @@
      targetRoute() 会静默把请求回落到 #home —— 页面看着正常，其实根本没进去。 */
   var KNOWN = ['home', 'register', 'verify', 'profile', 'exercises', 'exercise',
     'settings', 'goals', 'plan', 'bag', 'workout', 'summary', 'history', 'session',
-    'growth', 'quick', 'explore'];
+    'growth', 'quick', 'explore', 'me', 'about'];
 
   function targetRoute() {
     var r = parseHash();
@@ -11387,6 +11387,15 @@
   /* ---------------------------------------------------------------- 顶部与底栏 */
 
   function renderChrome() {
+    /* 09 轮：安全横幅只在「还没完善档案」时显示。
+       已经能正常用的会员不需要每天读一遍边界声明，更不该让它占着首屏第一块；
+       完整说明留在「我的 → 关于数据」，横幅本身的 title 仍是全文。
+       注意：这里必须在下面的 tabbar 早退之前执行，否则未核验页会漏掉状态同步。 */
+    var bar = $('mBanner');
+    if (bar) {
+      var prof = ctx.verified ? (store.find('m_profiles', ctx.member_id) || {}) : {};
+      bar.hidden = !!ctx.verified && prof.onboarding_done === 'Y';
+    }
     var st = $('mStoreState');
     if (st) {
       st.textContent = ctx.verified
@@ -11414,7 +11423,8 @@
         { k: 'home', t: '今日' },
         { k: 'plan', t: '计划', group: ['plan', 'bag'] },
         { k: 'exercises', t: '动作库', group: ['exercises', 'exercise'] },
-        { k: 'profile', t: '我的', group: ['profile', 'goals', 'growth', 'history', 'settings'] }
+        /* 08 轮：「我的」= 列表页 #me，点进对应条目才展开；二级页仍归在这一组里高亮 */
+        { k: 'me', t: '我的', group: ['me', 'profile', 'goals', 'growth', 'history', 'settings', 'explore', 'about'] }
       ];
       tab.innerHTML = items.map(function (it) {
         var on = (it.group ? it.group.indexOf(r) >= 0 : r === it.k);
@@ -11430,8 +11440,8 @@
     return ''
       + '<section class="m-card m-card-blue">'
       + '<div class="m-card-h"><h2>自助注册</h2>'
-      + '<span class="m-pill">会员端独立可用</span></div>'
-      + '<p class="m-p">不需要教练录入，注册后即可独立使用会员端的全部功能。'
+      + '<span class="m-pill">30 秒完成</span></div>'
+      + '<p class="m-p">注册后即可独立使用全部训练功能。'
       + '系统会自动给你一个 <b>S 开头</b>的会员号（如 S0001）。</p>'
       + '<div class="m-form">'
       + '<label class="m-fld"><span>姓名或昵称 <b class="m-req">*</b></span>'
@@ -11457,7 +11467,7 @@
       + '<ul class="m-list">'
       + '<li>本注册<b>只在本设备生效</b>，不上传、不与任何账号系统打通；换设备不会同步。</li>'
       + '<li>口令仅保存在本机且为哈希存储，<b>无法找回</b>；清除浏览器数据即不可恢复。</li>'
-      + '<li>注册后如需与教练端打通，请让教练在教练端添加你（姓名与手机号一致即可自动关联）。</li>'
+      + '<li>注册后即可独立使用全部功能；与教练的关联是<b>可选</b>的只读判定，不影响这里的任何数据。</li>'
       + '</ul></section>';
   }
 
@@ -11586,26 +11596,78 @@
   /* ---------------------------------------------------------------- 首页派生计算 */
 
   /** 今日主行动：按 03 §P1 的状态机决定按钮文案与去向 */
+  /**
+   * 首页唯一主行动（07 轮收敛）。
+   * 一屏只允许一个主按钮，判定按优先级短路，命中即返回：
+   *   1 有没结束的会话 → 继续训练（最紧急，压过其它一切）
+   *   2 暂停中 → 查看安排
+   *   3 档案没完善（onboarding_done !== 'Y'）→ 完善训练档案（计划全靠它）
+   *   4 今天已经有 completed 的会话 → 今日已完成（完成态样式，不是警报）
+   *   5 本周还没有计划 → 生成一周计划
+   *   6 今天有背包 / 计划项 → 开始今日训练 / 查看今日安排
+   *   7 兜底 → 自由训练
+   * kind 会被 pageHome 用来挑选「唯一次要入口」，两处必须成对改。
+   */
   function todayAction() {
     var live = store.all('m_sessions').filter(function (s) {
       return s.member_id === ctx.member_id && SES.isLive(s);
     }).sort(function (a, b) { return String(b.started_at).localeCompare(String(a.started_at)); })[0];
-    if (live) return { kind: 'resume', label: '继续训练', href: '#workout/' + live.session_id, tip: '你有一次训练还没结束' };
+    /* 09 轮：文案收敛到 4 类心智、按钮 2-6 字。
+       tip 就是首页那一句状态（页面直接拼成「你好，××，<tip>。」），
+       所以每句必须是能独立读通的短句，不再写括号补充说明。 */
+    if (live) return { kind: 'resume', label: '继续训练', href: '#workout/' + live.session_id, tip: '上次训练还没结束' };
 
     var prof = store.find('m_profiles', ctx.member_id) || {};
     if (prof.pause_until && String(prof.pause_until) >= today()) {
-      return { kind: 'paused', label: '训练暂停中，查看安排', href: '#plan', tip: '暂停至 ' + prof.pause_until + '，期间不会断连续记录' };
+      return { kind: 'paused', label: '查看计划', href: '#plan', tip: '训练暂停到 ' + prof.pause_until };
+    }
+
+    if (prof.onboarding_done !== 'Y') {
+      return { kind: 'profile', label: '完善档案', href: '#profile', tip: '还差一份训练档案' };
+    }
+
+    var doneToday = store.all('m_sessions').some(function (s) {
+      return s.member_id === ctx.member_id && s.status === 'completed'
+        && s.session_date === today();
+    });
+    if (doneToday) {
+      return { kind: 'done', label: '今日已完成', href: '#growth', tip: '今天已经练完了' };
+    }
+
+    var hasWeekPlan = store.all('m_plans').some(function (p) {
+      return p.member_id === ctx.member_id && p.week_start === PLAN.mondayOf(today())
+        && p.status !== 'archived';
+    });
+    if (!hasWeekPlan) {
+      return { kind: 'noplan', label: '生成本周计划', href: '#plan', tip: '本周还没排计划' };
     }
 
     var bag = todayBag();
     if (bag) {
       var items = bagItems(bag.bag_id);
-      if (items.length) return { kind: 'start', label: '开始今日训练', href: '#bag', tip: '背包里有 ' + items.length + ' 个动作' };
+      if (items.length) {
+        return { kind: 'start', label: '开始训练', href: '#bag',
+          tip: '今天已安排 ' + items.length + ' 个动作' };
+      }
     }
     if (todayPlanItems().length) {
-      return { kind: 'plan', label: '查看今日安排', href: '#plan', tip: '今天有计划，还没放进背包' };
+      return { kind: 'plan', label: '今日安排', href: '#plan', tip: '今天已安排，还没开始' };
     }
-    return { kind: 'quick', label: '自由训练（直接开始）', href: '#quick', tip: '不依赖计划，随时可以开始' };
+    return { kind: 'quick', label: '自由训练', href: '#quick', tip: '今天还没安排' };
+  }
+
+  /** 首页主 CTA 之外的「唯一次要入口」：一个状态最多给一个，不摆一排按钮（07 轮收敛）
+   *  09 轮补一条：次要链**不得与主按钮同目的地**。plan 态以前主次都指 #plan，等于同一个入口画了两次。 */
+  function homeSecondary(act) {
+    switch (act.kind) {
+      case 'profile': return { label: '先去动作库', href: '#exercises' };
+      case 'done':    return { label: '训练历史', href: '#history' };
+      case 'noplan':  return { label: '先自由训练', href: '#quick' };
+      case 'start':   return { label: '改计划', href: '#plan' };
+      case 'plan':    return { label: '自由训练', href: '#quick' };
+      case 'quick':   return { label: '去排计划', href: '#plan' };
+      default:        return null;   /* resume / paused 不给次要入口，别分散注意力 */
+    }
   }
 
   /**
@@ -11635,7 +11697,7 @@
         return c.member_id === ctx.member_id && c.period_type === 'daily'
           && c.period_key === today() && c.status === 'open';
       });
-      if (openDaily.length) out.push({ text: '今天还有 ' + openDaily.length + ' 条任务没完成', btn: '查看今日任务', href: '#home' });
+      if (openDaily.length) out.push({ text: '今天还有 ' + openDaily.length + ' 条任务没完成', btn: '查看今日任务', href: '#growth?tab=task' });
     }
 
     var w = XP.weeklyStats(store, ctx.member_id, PLAN.mondayOf(today()));
@@ -11704,29 +11766,59 @@
 
   /* ================================================================ 阶段7 · 共享渲染片段
    *
-   * 这两块（为什么慢 / 高级调整建议）要同时出现在首页、计划页和成长中心，
-   * 抽成函数是为了让三处永远长一样——分开复制必然漂移，改一处漏两处。
+   * 这几块（为什么慢 / 待办 / 高级调整建议）会出现在计划页与成长中心，
+   * 抽成函数是为了让各处永远长一样——分开复制必然漂移，改一处漏两处。
    *
    * 共同守则：**只读渲染 + 显式按钮**。这里没有任何一处是自执行的写操作，
    * 改计划只会发生在用户点击并由 runBusy 包住的那一次调用里。
    */
 
-  /** 「本周为什么慢」卡片：没有依据就返回空串，整块不渲染 */
-  function slowCardHtml() {
-    if (!GR) return '';
-    var w = GR.whySlow(store, ctx.member_id, { today: today() });
-    if (!w || !w.show) return '';
-    return '<section class="m-card m-card-amber">'
-      + '<div class="m-card-h"><h2>' + esc(w.head || '本周进度落后一点') + '</h2>'
-      + '<span class="m-pill">完成 ' + w.done + ' / ' + w.goal + ' 次</span></div>'
-      + '<ul class="m-why">'
-      + w.reasons.map(function (r) { return '<li>' + esc(r) + '</li>'; }).join('')
-      + '</ul>'
-      + '<p class="m-hint">这里说的都是已经发生的事，不是在评价你。节奏断了随时可以再开始。</p>'
-      + '<div class="m-btn-row"><a class="m-btn m-btn-primary m-btn-sm" href="'
-      + esc(w.action.href) + '">' + esc(w.action.label) + '</a></div>'
+  /**
+   * 计划页顶部提示（09 轮）：把「需要你先处理」与「本周为什么慢」合成一条可折叠摘要。
+   *
+   * 之前是两张大卡叠在计划正文上：待办卡（最多 3 条）+ 落后卡（原因 + 安慰话 + 主按钮），
+   * 合计约 420px，375×667 下超过半屏——打开计划页第一眼看到的是又一个仪表盘，
+   * 而不是「这周到底练什么」。现在收起时只占一行：标题 + 关键数字 + 「详情」，
+   * 展开后才是原因、待办和操作。没有依据时整块不渲染。
+   */
+  function planBriefHtml() {
+    var pri = priorities();
+    var slow = GR ? GR.whySlow(store, ctx.member_id, { today: today() }) : null;
+    if (!slow || !slow.show) slow = null;
+    if (!pri.length && !slow) return '';
+
+    var head = slow ? (slow.head || '本周进度落后一点') : ('有 ' + pri.length + ' 件要处理');
+    /* 只有待办时标题里已经带了件数，再来一个「1 件」的 pill 是重复——这轮专治重复 */
+    var pill = slow ? ('完成 ' + slow.done + ' / ' + slow.goal + ' 次') : '';
+
+    var body = '';
+    if (slow) {
+      body += '<ul class="m-why">'
+        + slow.reasons.map(function (r) { return '<li>' + esc(r) + '</li>'; }).join('')
+        + '</ul>'
+        + '<p class="m-hint">这里说的都是已经发生的事，不是在评价你。节奏断了随时可以再开始。</p>'
+        + '<div class="m-btn-row"><a class="m-btn m-btn-sm" href="'
+        + esc(slow.action.href) + '">' + esc(slow.action.label) + '</a></div>';
+    }
+    if (pri.length) {
+      body += pri.map(function (x) {
+        return '<div class="m-rowitem"><div class="m-rowitem-t">' + esc(x.text) + '</div>'
+          + '<a class="m-btn m-btn-sm" href="' + x.href + '">' + esc(x.btn) + '</a></div>';
+      }).join('');
+    }
+
+    return '<section class="m-card m-card-brief' + (slow ? ' m-card-amber' : '') + '">'
+      + '<details class="m-brief">'
+      + '<summary class="m-brief-s">'
+      + '<h2 class="m-brief-t">' + esc(head) + '</h2>'
+      + (pill ? '<span class="m-pill">' + esc(pill) + '</span>' : '')
+      + '<span class="m-brief-x">详情</span>'
+      + '</summary>'
+      + '<div class="m-brief-b">' + body + '</div>'
+      + '</details>'
       + '</section>';
   }
+
 
   /** 决策按钮文案：把「拒绝」说成人话，降低心理成本 */
   var DECISION_LABEL = { accepted: '就按这个来', rejected: '先不用，保持原样', modified: '改成这样再保存' };
@@ -11836,154 +11928,42 @@
   }
 
   function pageHome() {
-    /* 每日任务 / 每周挑战在这里生成（两个函数都幂等：已存在就跳过）。
-       放在渲染前而不是绑定后，是为了让下面统计到的就是当天的完整任务列表。 */
-    var mk = XP.ensureDaily(store, ctx.member_id, today());
-    var mk2 = XP.ensureWeekly(store, ctx.member_id, PLAN.mondayOf(today()));
-    if ((mk && mk.created) || (mk2 && mk2.created)) { persist(); }
-
+    /* 08 轮起首页是唯一工作台：一行状态 + 一个主按钮 + 一个文字链次要入口。
+       09 轮再删一层：「三步上手」新手条整条移除——它和 profile 态说的是同一件事，
+       新用户首屏同时被两份指引抢注意力。档案页本身有说明和「稍后，先随便看看」。
+       其余功能全部收进导航：任务/挑战 → #growth?tab=task、灵感卡 → #explore、
+       AI 入口与「已与教练关联」→ #me、落后说明与待办 → #plan。
+       （每日/每周任务的生成也随卡片一起搬到了成长中心，见 pageGrowth。） */
     var p = store.find('m_profiles', ctx.member_id) || {};
-    var en = IDN.enrollState(store, ctx.member_id, IDN.readCoachMembers(localStorage).members);
     var act = todayAction();
-    var pri = priorities();
-    var ov = XP.overview(store, ctx.member_id);
-    var rhythm = weeklyRhythm();
-    var maxN = rhythm.reduce(function (a, r) { return Math.max(a, r.n); }, 1);
-
-    /* 长期目标 + 最近一个未完成阶段 */
-    var goals = GOAL.listGoals(store, ctx.member_id);
-    var lt = (goals.longTerms || [])[0] || null;
-    var stages = lt ? (goals.children[lt.goal_id] || []) : [];
-    var nextStage = stages.filter(function (g) { return g.status === 'active'; })[0] || null;
-
-    var daily = store.all('m_challenges').filter(function (c) {
-      return c.member_id === ctx.member_id && c.period_type === 'daily' && c.period_key === today();
-    });
-    var weekly = store.all('m_challenges').filter(function (c) {
-      return c.member_id === ctx.member_id && c.period_type === 'weekly'
-        && c.period_key === PLAN.mondayOf(today());
-    });
-    var recs = store.all('m_records').filter(function (r) { return r.member_id === ctx.member_id; })
-      .sort(function (a, b) { return String(b.achieved_at).localeCompare(String(a.achieved_at)); })
-      .slice(0, 3);
+    var w = XP.weeklyStats(store, ctx.member_id, PLAN.mondayOf(today()));
+    var sec = homeSecondary(act);
 
     return ''
-      /* 1. 今日主行动 */
-      /* 「今天」是全站唯一用柔色底的卡（.m-card-hero）：
-         打开应用第一眼要看到的只有「今天练什么」，其余卡片一律白底往后退。 */
+      /* 唯一的工作台卡片（全站唯一柔色底 .m-card-hero）：
+            一句状态 → 唯一主按钮 → 文字链次要入口 → 本周进度一行。别的不放。 */
       + '<section class="m-card m-card-hero">'
       + '<div class="m-card-h"><h2>今天</h2><span class="m-pill">' + today() + '</span></div>'
-      + '<p class="m-p">你好，<b>' + esc(p.name || ctx.member_id) + '</b>'
-      + (act.tip ? '，' + esc(act.tip) : '') + '。</p>'
+      /* 一句状态：问候 + 当前档位合成一句自然话。
+         以前是「你好，××（状态），tip。」——括号夹一句、逗号再挂一段，读起来像系统日志。 */
+      + '<p class="m-p">你好，<b>' + esc(p.name || ctx.member_id) + '</b>，'
+      + esc(act.tip || '') + '。</p>'
       + (act.kind === 'quick'
         ? '<button class="m-btn m-btn-primary m-btn-lg" id="btnQuickStart">' + act.label + '</button>'
-        : '<a class="m-btn m-btn-primary m-btn-lg" href="' + act.href + '">' + act.label + '</a>')
-      /* 「已关联教练端」是状态说明，不是「练完」——不再套用 m-ok（现在等于完成态红） */
-      + (en.enrolled ? '<p class="m-hint">已关联教练端会员 ' + esc(en.coach_member_id) + '</p>' : '')
-      + '</section>'
-
-      /* 2. 需要优先处理 */
-      + (pri.length
-        ? '<section class="m-card"><div class="m-card-h"><h2>需要你先处理</h2></div>'
-          + pri.map(function (x) {
-            return '<div class="m-rowitem"><div class="m-rowitem-t">' + esc(x.text) + '</div>'
-              + '<a class="m-btn m-btn-sm" href="' + x.href + '">' + esc(x.btn) + '</a></div>';
-          }).join('')
-          + '</section>'
-        : '')
-
-      /* 2.5 本周为什么进度慢（只在真的落后时出现，没依据就整块不渲染） */
-      + slowCardHtml()
-
-      /* 3. 每日任务 */
-      + '<section class="m-card"><div class="m-card-h"><h2>今日任务</h2>'
-      + '<span class="m-pill">' + daily.filter(function (c) { return c.status === 'done'; }).length
-      + ' / ' + daily.length + '</span></div>'
-      + (daily.length
-        ? daily.map(function (c) {
-          var v = +c.current_value, t = +c.target_value;
-          var pct = t > 0 ? Math.min(100, Math.round(v / t * 100)) : 0;
-          return '<div class="m-task' + (c.status === 'done' ? ' m-task-done' : '') + '">'
-            + '<div class="m-task-t">' + esc(c.title) + '</div>'
-            + '<div class="m-bar"><i style="width:' + pct + '%"></i></div>'
-            + '<div class="m-task-v">' + v + ' / ' + t + ' ' + esc(c.unit) + '</div></div>';
-        }).join('')
-        : '<p class="m-p">今天还没有生成任务，打开首页时会自动生成。</p>')
-      + '</section>'
-
-      /* 3.5 今天可以试试：灵感卡（点了要确认才会真的写进背包/计划） */
-      + inspireSectionHtml()
-
-      /* 3.6 AI 教练入口（只在有这个文件的布局下出现） */
-      + aiCoachEntryHtml()
-
-      /* 4. 每周挑战 */
-      + '<section class="m-card"><div class="m-card-h"><h2>本周挑战</h2>'
-      + '<a class="m-more" href="#growth">更多</a></div>'
-      + (weekly.length
-        ? weekly.map(function (c) {
-          var v = +c.current_value, t = +c.target_value;
-          var pct = t > 0 ? Math.min(100, Math.round(v / t * 100)) : 0;
-          return '<div class="m-task' + (c.status === 'done' ? ' m-task-done' : '') + '">'
-            + '<div class="m-task-t">' + esc(c.title) + '</div>'
-            + '<div class="m-bar"><i style="width:' + pct + '%"></i></div>'
-            + '<div class="m-task-v">' + v + ' / ' + t + ' ' + esc(c.unit) + '</div></div>';
-        }).join('')
-        : '<p class="m-p">本周还没有挑战。</p>')
-      + '</section>'
-
-      /* 5. XP / 等级 / 连续 */
-      + '<section class="m-card m-card-teal"><div class="m-card-h"><h2>成长</h2>'
-      + '<a class="m-more" href="#growth">成长中心</a></div>'
-      + '<div class="m-xpline">'
-      + '<div class="m-lv">Lv.' + ov.level + '</div>'
-      + '<div class="m-lvinfo"><div class="m-lvtitle">' + esc(ov.level_title) + '</div>'
-      + '<div class="m-bar"><i style="width:' + (ov.xp_for_level > 0
-        ? Math.min(100, Math.round(ov.xp_into_level / ov.xp_for_level * 100)) : 0) + '%"></i></div>'
-      + '<div class="m-task-v">' + ov.lifetime_xp + ' XP · 距下一级 '
-      + (ov.xp_for_level > 0 ? Math.max(0, ov.xp_for_level - ov.xp_into_level) : '已满级') + '</div></div>'
-      + '<div class="m-streak"><b>' + ov.active_days_streak + '</b><span>连续天数</span></div>'
-      + '</div>'
-      + '<p class="m-hint">休息一天不会断连续，连续两天没练才会重新开始。</p>'
-      + '</section>'
-
-      /* 6. 阶段目标 */
-      + '<section class="m-card"><div class="m-card-h"><h2>当前目标</h2>'
-      + '<a class="m-more" href="#goals">目标管理</a></div>'
-      + (lt
-        ? '<div class="m-goal-line"><b>' + esc(lt.title) + '</b>'
-          + '<span>' + esc(lt.start_value) + ' → ' + esc(lt.target_value) + ' ' + esc(lt.unit) + '</span></div>'
-          + (nextStage
-            ? '<div class="m-task"><div class="m-task-t">' + esc(nextStage.title) + '</div>'
-              + goalBar(nextStage) + '</div>'
-            : '<p class="m-p">所有阶段目标都已完成。</p>')
-        : '<p class="m-p">还没有设定目标。<a href="#goals">现在去设定</a>，系统会把大目标拆成能一步步做完的小阶段。</p>')
-      + '</section>'
-
-      /* 7. 训练节奏图 */
-      + '<section class="m-card"><div class="m-card-h"><h2>近 12 周训练节奏</h2></div>'
-      + '<div class="m-rhythm">' + rhythm.map(function (r) {
-        var lvl = r.n === 0 ? 0 : Math.min(4, Math.ceil(r.n / maxN * 4));
-        return '<i class="m-rh l' + lvl + (r.current ? ' m-rh-now' : '') + '" title="'
-          + r.week + ' 完成 ' + r.n + ' 次"></i>';
-      }).join('') + '</div>'
-      + '<p class="m-hint">每格一周，颜色越深完成次数越多；带边框的是本周。</p>'
-      + '</section>'
-
-      /* 8. 个人纪录 */
-      + '<section class="m-card"><div class="m-card-h"><h2>最近的个人纪录</h2>'
-      + '<a class="m-more" href="#history">历史</a></div>'
-      + (recs.length
-        ? recs.map(function (r) {
-          var ex = store.find('m_exercises', r.exercise_id);
-          return '<div class="m-rowitem"><div class="m-rowitem-t">'
-            + esc(ex ? ex.name : r.exercise_id) + ' · ' + recTypeName(r.record_type)
-            + '<em>' + esc(r.value) + '</em></div>'
-            + '<div class="m-rowitem-s">' + esc(String(r.achieved_at).slice(0, 10)) + '</div></div>';
-        }).join('')
-        : '<p class="m-p">还没有纪录。完成训练后会自动记录你的个人最好成绩。</p>')
+        : (act.kind === 'done'
+          /* 今日已完成：完成态走橙红浅底深字（练完=橙红），不用警报样式也不用主紫 */
+          ? '<a class="m-btn m-btn-done m-btn-lg" href="' + act.href + '">' + act.label + '</a>'
+          : '<a class="m-btn m-btn-primary m-btn-lg" href="' + act.href + '">' + act.label + '</a>'))
+      + (sec
+          /* 次要入口是文字链，不是第二个大按钮——08 轮规范 */
+          ? '<p class="m-hint">或者：<a href="' + sec.href + '">' + esc(sec.label) + '</a></p>'
+          : '')
+      /* 本周进度是纯文本，不再带第二个链接（「任务与挑战在成长中心」挪去 #me / #growth） */
+      + (p.onboarding_done === 'Y'
+        ? '<p class="m-hint">本周已完成 ' + w.completedCount + ' / ' + w.frequencyGoal + ' 次。</p>' : '')
       + '</section>';
   }
+
 
   function recTypeName(t) {
     return { one_rm: '估算 1RM', max_weight: '最大重量', max_reps: '最多次数', max_volume: '单次最大容量' }[t] || t;
@@ -12077,6 +12057,10 @@
       + '<section class="m-card m-card-purple">'
       + '<div class="m-card-h"><h2>训练档案</h2>'
       + '<span class="m-pill">' + (p.onboarding_done === 'Y' ? '已完成引导' : '待完成引导') + '</span></div>'
+      + (p.onboarding_done === 'Y' ? ''
+        : '<p class="m-hint">为什么要填：计划会按你能练的天数、时长和器械来排；'
+          + '填完大约 30 秒，回首页就能一键生成第一周计划。不想现在填，'
+          + '也可以 <a href="#exercises">先去动作库看看</a>。</p>')
       + '<div class="m-form">'
       + '<label class="m-fld"><span>姓名或昵称 <b class="m-req">*</b></span>'
       + '<input id="pfName" type="text" maxlength="30" value="' + esc(p.name) + '"></label>'
@@ -12105,7 +12089,10 @@
       + '<input id="pfLimitNote" type="text" maxlength="300" value="' + esc(p.limitation_note) + '"></label>'
       + '</div>'
       + '<div class="m-msg" id="pfMsg"></div>'
-      + '<div class="m-btn-row"><button class="m-btn m-btn-primary" id="btnSaveProfile">保存档案</button></div>'
+      + '<div class="m-btn-row"><button class="m-btn m-btn-primary" id="btnSaveProfile">保存档案</button>'
+      + (p.onboarding_done === 'Y' ? ''
+        : '<a class="m-btn m-btn-ghost" href="#exercises">稍后，先随便看看</a>')
+      + '</div>'
       + '</section>'
       + '<section class="m-card ' + (en.enrolled ? 'm-card-blue' : '') + '">'
       + '<div class="m-card-h"><h2>与教练端的关联</h2></div>'
@@ -12116,6 +12103,88 @@
         : '<p class="m-p">当前<b>未关联</b>教练端。会员端功能不受影响，可正常使用全部训练功能。</p>'
           + '<p class="m-hint">如需关联，请让教练在教练端添加你，且姓名与手机号与此处一致。</p>')
       + '<p class="m-hint">关联状态为<b>只读判定</b>，不会读写教练端数据。</p>'
+      + '</section>';
+      /* 08 轮：AI 入口不再挂在这一页，统一收进「我的」列表（#me） */
+  }
+
+  /* ---------------------------------------------------------------- 页面：我的（列表导航）
+
+     首页只回答「今天练什么」，其余功能一律从这里点进去。
+     这一页刻意只做**一行一个入口**的列表：不放图表、不放挑战、不放灵感卡 ——
+     它们各自有页面（#growth / #explore），在这里再摆一遍就等于又造了一个首页。
+     新增入口只加一行，别加卡片。
+     ---------------------------------------------------------------- */
+
+  function meRow(o) {
+    return '<a class="m-cell" href="' + esc(o.href) + '"'
+      + (o.blank ? ' target="_blank" rel="noopener"' : '')
+      + (o.title ? ' title="' + esc(o.title) + '"' : '') + '>'
+      + '<span class="m-cell-t">' + esc(o.label)
+      + (o.desc ? '<em>' + esc(o.desc) + '</em>' : '') + '</span>'
+      + (o.value ? '<span class="m-cell-v">' + esc(o.value) + '</span>' : '')
+      + '<span class="m-cell-arrow" aria-hidden="true">›</span></a>';
+  }
+
+  function pageMe() {
+    var p = store.find('m_profiles', ctx.member_id) || {};
+    var ov = XP.overview(store, ctx.member_id);
+    var ai = aiCoachHref();
+    var en = IDN.enrollState(store, ctx.member_id, IDN.readCoachMembers(localStorage).members);
+    return ''
+      /* 头：只放身份 + 一行数字，不做仪表盘 */
+      + '<section class="m-card">'
+      + '<div class="m-card-h"><h2>' + esc(p.name || ctx.member_id) + '</h2>'
+      + '<span class="m-pill">' + esc(ctx.member_id) + '</span></div>'
+      + '<p class="m-hint">Lv.' + ov.level + ' · ' + ov.lifetime_xp + ' XP · 连续 '
+      + ov.active_days_streak + ' 天 · 数据只存本机</p>'
+      /* 「已与教练关联」09 轮从首页搬到这里：它是身份说明，不是每天要看的行动项 */
+      + (en.enrolled ? '<p class="m-hint">已与教练关联（只读，不影响你在这里的训练）</p>' : '')
+      + '</section>'
+
+      /* 首屏只强调三条主线：档案 / 历史 / 成长（目标跟在档案后面，是同一件事的两步） */
+      + '<section class="m-card">'
+      + '<div class="m-group-t">训练</div>'
+      + '<div class="m-cells">'
+      + meRow({ label: '训练档案', value: p.onboarding_done === 'Y' ? '已填写' : '待完善', href: '#profile' })
+      + meRow({ label: '目标', href: '#goals' })
+      + meRow({ label: '训练历史', href: '#history' })
+      + meRow({ label: '成长与成就', href: '#growth' })
+      + '</div></section>'
+
+      /* 09 轮：「发现」与「数据」默认折叠成一条。
+         这两组各只有 2 行，却占了首屏一半高度，把档案 / 历史 / 成长挤了下去。
+         收起态只留一行摘要，点开才是完整入口——功能一个没少，只是不抢戏。 */
+      + '<section class="m-card">'
+      + '<details class="m-fold">'
+      + '<summary class="m-fold-s"><b>更多</b><em>探索 · AI · 设置 · 关于</em>'
+      + '<span class="m-fold-x" aria-hidden="true"></span></summary>'
+      + '<div class="m-cells">'
+      + meRow({ label: '探索地图', href: '#explore' })
+      + (ai
+        ? meRow({
+          label: 'AI 姿势辅助', href: ai, blank: true, title: aiCoachCapLine(),
+          desc: '摄像头实时看姿态 · 须在 https 或 localhost 下打开'
+        })
+        : '')
+      + meRow({ label: '设置 · 导出 / 导入', href: '#settings' })
+      + meRow({ label: '关于数据', href: '#about' })
+      + '</div>'
+      + '</details></section>';
+  }
+
+  /* 关于数据：本机存储说明单独成页，避免每页都挂一大段警告 */
+  function pageAbout() {
+    return ''
+      + '<section class="m-card">'
+      + '<div class="m-card-h"><h2>关于数据</h2><span class="m-pill">本机存储</span></div>'
+      + '<ul class="m-list">'
+      + '<li>训练记录、档案、计划都保存在<b>这台设备的浏览器</b>里（键 <code>' + MST.KEY
+      + '</code>），不会上传服务器，别人看不到。</li>'
+      + '<li>换设备或换浏览器就是<b>新的空账号</b>，迁移请用设置页的导出 / 导入。</li>'
+      + '<li>清理浏览器数据会<b>连同记录一起清掉</b>，且无法恢复。</li>'
+      + '<li>本页没有登录与权限校验；与教练端的关联只是只读判定，不会读写教练端数据。</li>'
+      + '</ul>'
+      + '<div class="m-btn-row"><a class="m-btn m-btn-ghost" href="#settings">去导出 / 导入</a></div>'
       + '</section>';
   }
 
@@ -13076,6 +13145,9 @@
     var nextWeek = PLAN.addDays(week, 7);
 
     var html = ''
+      /* 08 轮：待办清单与「为什么慢」从首页搬到计划页。
+         09 轮：两者合成一条可折叠摘要——计划页第一眼必须是本周计划本身。 */
+      + planBriefHtml()
       + '<section class="m-card m-card-blue"><div class="m-card-h"><h2>本周训练计划</h2>'
       + '<span class="m-pill">' + week + ' 起</span></div>'
       + '<div class="m-weeknav">'
@@ -13902,6 +13974,12 @@
 
   function pageGrowth(r) {
     var tab = r.q.tab || 'level';
+    /* 08 轮：每日/每周任务的生成从首页搬到成长中心（两个函数都幂等：已存在就跳过）。
+       首页不再展示任务卡，生成跟着展示走。 */
+    var mk = XP.ensureDaily(store, ctx.member_id, today());
+    var mk2 = XP.ensureWeekly(store, ctx.member_id, PLAN.mondayOf(today()));
+    if ((mk && mk.created) || (mk2 && mk2.created)) { persist(); }
+
     var ov = XP.overview(store, ctx.member_id);
     var achv = XP.achievementList(store, ctx.member_id);
     var nx = XP.nextLevel(ov.lifetime_xp);
@@ -13966,16 +14044,29 @@
         + '<p class="m-hint">这些都是已经落地的记录的另一副样子：'
         + '探索解锁来自 m_unlocks、调整来自 m_adjustments，没有再造一份事实。</p>'
         + '</section>';
+    } else if (tab === 'task') {
+      /* 08 轮从首页搬来：每日任务 + 每周挑战。成长中心本来就有 tab 体系，加一页最省。 */
+      var daily = store.all('m_challenges').filter(function (c) {
+        return c.member_id === ctx.member_id && c.period_type === 'daily' && c.period_key === today();
+      });
+      var weekly = store.all('m_challenges').filter(function (c) {
+        return c.member_id === ctx.member_id && c.period_type === 'weekly'
+          && c.period_key === PLAN.mondayOf(today());
+      });
+      body = challengeCardHtml('今日任务', daily, '今天还没有生成任务，进这一页时会自动生成。')
+        + challengeCardHtml('本周挑战', weekly, '本周还没有挑战。');
     } else if (tab === 'trend') {
       /* 近 8 周趋势。GR.trend 领域层早就在算、也有单测，但此前 member.js 里没有一处调用，
          等于功能存在而用户完全看不见——这一版是第一次把它画出来。纯读，放渲染里安全。 */
-      body = trendHtml(GR ? GR.trend(store, ctx.member_id, { today: today(), weeks: 8 }) : []);
+      body = trendHtml(GR ? GR.trend(store, ctx.member_id, { today: today(), weeks: 8 }) : [])
+        /* 08 轮从首页搬来：近 12 周训练节奏图 */
+        + rhythmHtml();
     }
 
     return ''
       + '<section class="m-card m-card-blue"><div class="m-card-h"><h2>成长中心</h2></div>'
       + '<div class="m-tabs">'
-      + [['level', '等级'], ['achv', '成就'], ['record', '纪录'],
+      + [['task', '任务'], ['level', '等级'], ['achv', '成就'], ['record', '纪录'],
          ['adjust', '调整'], ['timeline', '时间线'], ['trend', '趋势']].map(function (x) {
         return '<a class="m-tab2' + (tab === x[0] ? ' m-tab2-on' : '') + '" href="#growth?tab=' + x[0] + '">'
           + x[1] + '</a>';
@@ -14036,6 +14127,38 @@
       + body
       + '<p class="m-hint">条长是这一周的总容量（重量×次数）相对这 8 周里最高那一周的比例，'
       + '只看相对变化，不跟别人比。中途有周是空的也正常，不是退步。</p>'
+      + '</section>';
+  }
+
+  /** 任务/挑战卡的通用渲染（08 轮从首页抽出，搬进成长中心任务页签） */
+  function challengeCardHtml(title, list, emptyText) {
+    return '<section class="m-card"><div class="m-card-h"><h2>' + esc(title) + '</h2>'
+      + '<span class="m-pill">' + list.filter(function (c) { return c.status === 'done'; }).length
+      + ' / ' + list.length + '</span></div>'
+      + (list.length
+        ? list.map(function (c) {
+          var v = +c.current_value, t = +c.target_value;
+          var pct = t > 0 ? Math.min(100, Math.round(v / t * 100)) : 0;
+          return '<div class="m-task' + (c.status === 'done' ? ' m-task-done' : '') + '">'
+            + '<div class="m-task-t">' + esc(c.title) + '</div>'
+            + '<div class="m-bar"><i style="width:' + pct + '%"></i></div>'
+            + '<div class="m-task-v">' + v + ' / ' + t + ' ' + esc(c.unit) + '</div></div>';
+        }).join('')
+        : '<p class="m-p">' + esc(emptyText) + '</p>')
+      + '</section>';
+  }
+
+  /** 近 12 周训练节奏图（08 轮从首页搬进成长中心趋势页签） */
+  function rhythmHtml() {
+    var rhythm = weeklyRhythm();
+    var maxN = rhythm.reduce(function (a, r) { return Math.max(a, r.n); }, 1);
+    return '<section class="m-card"><div class="m-card-h"><h2>近 12 周训练节奏</h2></div>'
+      + '<div class="m-rhythm">' + rhythm.map(function (r) {
+        var lvl = r.n === 0 ? 0 : Math.min(4, Math.ceil(r.n / maxN * 4));
+        return '<i class="m-rh l' + lvl + (r.current ? ' m-rh-now' : '') + '" title="'
+          + r.week + ' 完成 ' + r.n + ' 次"></i>';
+      }).join('') + '</div>'
+      + '<p class="m-hint">每格一周，颜色越深完成次数越多；带边框的是本周。</p>'
       + '</section>';
   }
 
@@ -14113,12 +14236,13 @@
       + '筛选只影响这张地图的显示，不会改你的任何记录。</p></section>';
     /* 筛完一个都不剩时要说清楚，否则页面一大片空白看着像坏了 */
     if (!visible) {
-      return head + bar + '<section class="m-card"><p class="m-p">'
+      return inspireSectionHtml() + head + bar + '<section class="m-card"><p class="m-p">'
         + (lv === 'on' ? '还没有点亮的格子——先把「未解锁」里挑一个练一次，这里就会有内容。'
           : '所有格子都已经点亮了，可以换「已解锁」看看你走到哪一步了。')
         + '</p></section>';
     }
-    return head + bar + dims.map(function (d) { return exploreDimCardHtml(d, lv); }).join('');
+    /* 08 轮：灵感卡从首页搬来，挂在探索页顶部（详情视图不放，保持专注） */
+    return inspireSectionHtml() + head + bar + dims.map(function (d) { return exploreDimCardHtml(d, lv); }).join('');
   }
 
   /** 格子是否命中筛选。level 是领域层算好的解锁层级，0 = 未解锁。 */
@@ -14129,7 +14253,7 @@
   }
 
   /* ================================================================
-     首页灵感卡
+     灵感卡（08 轮起挂在探索页 #explore 顶部，原在首页）
      三条硬规矩：
        1. 只展示，绝不自动写入 —— 不点按钮不产生任何数据；
        2. 点了也要**先确认**：确认框里写清楚会加几个动作、加到哪里；
@@ -14216,20 +14340,9 @@
       + '摄像头只读取人体姿态，不识别器械与配重。';
   }
 
-  /** AI 教练入口卡：说清楚它是原型、要摄像头、与本页数据互不干扰 */
-  function aiCoachEntryHtml() {
-    var href = aiCoachHref();
-    if (!href) return '';
-    return '<section class="m-card"><div class="m-card-h"><h2>AI 动作教练</h2>'
-      + '<span class="m-pill">原型</span></div>'
-      + '<p class="m-p">' + esc(aiCoachCapLine()) + '</p>'
-      + '<p class="m-hint">需要摄像头权限，且必须在 <b>https 或 localhost</b> 下打开才能调用摄像头；'
-      + '直接双击 file:// 打开时，它会提示无法取流，这是浏览器限制，不是故障。'
-      + '它与会员端各存各的数据，来回切换不会互相覆盖。</p>'
-      + '<div class="m-btn-row"><a class="m-btn m-btn-ghost" target="_blank" rel="noopener" href="'
-      + href + '">打开 AI 动作教练</a></div>'
-      + '</section>';
-  }
+  /* 08 轮：AI 入口的整卡已删除，改成「我的」列表里的一行（pageMe → meRow）。
+     列表行放不下整段说明，所以把那句能力描述挂到 title 上（aiCoachCapLine），
+     约束（https / localhost 才能开摄像头）写进行内的第二行小字。 */
 
   function personaName(t) {
     return { beginner: '刚开始练', unstable: '还在找节奏', veteran: '已经很稳' }[t] || t || '—';
@@ -14436,6 +14549,8 @@
     else if (r.route === 'growth') html = pageGrowth(r);
     else if (r.route === 'explore') html = pageExplore(r);
     else if (r.route === 'profile') html = pageProfile();
+    else if (r.route === 'me') html = pageMe();
+    else if (r.route === 'about') html = pageAbout();
     else if (r.route === 'exercises') html = pageExercises(r);
     else if (r.route === 'exercise') html = pageExercise(r);
     else if (r.route === 'settings') html = pageSettings();
@@ -14446,7 +14561,8 @@
 
     if (r.route === 'register') bindRegister();
     else if (r.route === 'verify') bindVerify();
-    else if (r.route === 'home') { bindHome(); bindAdjust(); bindInspire(); }
+    /* 08 轮：首页只剩工作台卡片，不再有灵感卡与调整卡可绑 */
+    else if (r.route === 'home') bindHome();
     else if (r.route === 'quick') bindQuick();
     else if (r.route === 'goals') bindGoals();
     else if (r.route === 'plan') { bindPlan(); bindAdjust(); }
@@ -14455,7 +14571,7 @@
     else if (r.route === 'summary') bindSummary(r);
     else if (r.route === 'session') bindSession();
     else if (r.route === 'growth') { bindAdjust(); centerActiveTab(); }
-    else if (r.route === 'explore') bindExplore();
+    else if (r.route === 'explore') { bindExplore(); bindInspire(); }
     else if (r.route === 'profile') bindProfile();
     else if (r.route === 'exercises') bindExercises();
     else if (r.route === 'exercise') bindExercise(r);

@@ -3,103 +3,75 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Fitness XP 会员端 · 多人内测</title>
+<title>Fitness XP · 训练记录与计划</title>
 <!-- 内联图标：不声明的话浏览器会自动请求 /favicon.ico 并报 404 -->
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%237057F5'/%3E%3Ctext x='16' y='22' font-size='14' font-family='sans-serif' font-weight='700' fill='white' text-anchor='middle'%3EFX%3C/text%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%236D5CE8'/%3E%3Ctext x='16' y='22' font-size='14' font-family='sans-serif' font-weight='700' fill='white' text-anchor='middle'%3EFX%3C/text%3E%3C/svg%3E">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Fitness XP">
+<meta name="theme-color" content="#F4F6F8">
 <style>
   :root{
-    --bg:#FFF9FC; --ink:#29263D; --ink2:#6E6885;
-    --pri:#7057F5; --pri-soft:#EEE9FF;
-    --blue:#36BDF2; --green:#36C995; --yellow:#FFD568; --pink:#FF879D;
-    --line:#EDE6F2; --card:#FFFFFF;
+    --bg:#F4F6F8; --ink:#29263D; --ink2:#605E75;
+    --pri:#6D5CE8; --pri-deep:#5144B5; --pri-l:#F0EDFF; --pri-ink:#4C3FB2;
+    --line:#E9E8F0; --card:#FFFFFF;
   }
   *{box-sizing:border-box;}
   body { margin:0; padding:24px 16px 40px;
          font:15px/1.7 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
          background:var(--bg); color:var(--ink); }
   .box { max-width:520px; margin:0 auto; }
-  .hero{ background:linear-gradient(135deg,#7057F5 0%,#9B7BFF 55%,#36BDF2 100%);
-         border-radius:18px; padding:20px 20px 22px; color:#fff; margin-bottom:18px; }
-  .hero h1{ font-size:21px; margin:0 0 6px; font-weight:700; }
-  .hero p{ margin:0; font-size:13.5px; opacity:.92; }
-  h2.sec{ font-size:15px; margin:22px 0 10px; font-weight:700; }
+  .hero{ background:linear-gradient(135deg,#6D5CE8 0%,#9B7BFF 60%,#6FB0D8 100%);
+         border-radius:18px; padding:24px 20px; color:#fff; margin-bottom:14px; }
+  .hero h1{ font-size:24px; margin:0 0 4px; font-weight:700; letter-spacing:-.2px; }
+  .hero p{ margin:0; font-size:14px; opacity:.94; }
   .btn{ display:block; text-align:center; text-decoration:none; border-radius:14px;
         padding:14px 18px; font-size:16px; font-weight:600; margin-bottom:10px;
-        min-height:48px; line-height:1.3; }
-  .btn-p{ background:var(--pri); color:#fff; box-shadow:0 6px 16px rgba(112,87,245,.28); }
-  .btn-s{ background:var(--pri-soft); color:#4B37B8; border:1px solid #DCD2FF; }
-  ol.steps{ margin:0; padding:0; list-style:none; counter-reset:s; }
+        min-height:52px; line-height:1.3; }
+  .btn-p{ background:var(--pri); color:#fff; }
+  .btn-p:active{ background:var(--pri-deep); }
+  .btn-s{ background:var(--pri-l); color:var(--pri-ink); border:1px solid #DCD5F8; }
+  ol.steps{ margin:16px 0 0; padding:0; list-style:none; counter-reset:s; }
   ol.steps li{ counter-increment:s; position:relative; background:var(--card);
     border:1px solid var(--line); border-radius:12px; padding:12px 14px 12px 46px;
     margin-bottom:8px; font-size:14px; }
   ol.steps li::before{ content:counter(s); position:absolute; left:14px; top:12px;
-    width:22px; height:22px; border-radius:50%; background:var(--pri-soft); color:#4B37B8;
+    width:22px; height:22px; border-radius:50%; background:var(--pri-l); color:var(--pri-ink);
     font-size:12.5px; font-weight:700; text-align:center; line-height:22px; }
   ol.steps li b{ display:block; margin-bottom:2px; }
   ol.steps li span{ color:var(--ink2); font-size:12.5px; }
-  .note{ background:#FFF4CE; border:1px solid #F2DE9C; border-radius:12px;
-         padding:12px 14px; font-size:13px; color:#6B5108; margin-top:10px; }
-  .note b{ color:#5A4405; }
-  .note ul{ margin:8px 0 0; padding-left:18px; }
-  .fb{ background:#E1F8ED; border:1px solid #B7EBD3; border-radius:12px;
-       padding:12px 14px; font-size:13px; color:#1B6B4A; margin-top:10px; }
-  .fb b{ color:#14573B; }
-  .mini{ margin-top:24px; font-size:12.5px; color:var(--ink2); text-align:center; }
-  .mini a{ color:#4B37B8; margin:0 8px; }
-  .foot{ margin-top:8px; font-size:11.5px; color:#9A94AD; text-align:center; }
+  .note{ background:var(--card); border:1px solid var(--line); border-radius:12px;
+         padding:10px 14px; font-size:12.5px; color:var(--ink2); margin-top:12px; }
+  .mini{ margin-top:22px; font-size:12.5px; color:var(--ink2); text-align:center; }
+  .mini a{ color:var(--pri-ink); margin:0 8px; }
+  .foot{ margin-top:10px; font-size:11.5px; color:#9A94AD; text-align:center; }
 </style>
 </head>
 <body>
 <div class="box">
 
   <div class="hero">
-    <h1>Fitness XP 会员端 · 内测</h1>
-    <p>请按下面的顺序走一遍完整流程，遇到异常直接截图反馈。大约需要 10 分钟。</p>
+    <h1>Fitness XP</h1>
+    <p>训练记录与计划 —— 记下每一组，看得见进步。</p>
   </div>
 
-  <a class="btn btn-p" href="./member/index.html#register">开始体验（首次使用，注册会员号）</a>
-  <a class="btn btn-s" href="./member/index.html#home">已有会员号，继续训练</a>
+  <a class="btn btn-p" href="./member/index.html#register">开始使用</a>
+  <a class="btn btn-s" href="./member/index.html#home">已有会员号，继续练</a>
 
-  <h2 class="sec">建议按这个顺序测</h2>
   <ol class="steps">
-    <li><b>注册会员号</b><span>填姓名、手机号、4 位 PIN、训练经验、目标。会员名建议填自己的昵称，方便对账。</span></li>
-    <li><b>补全训练档案</b><span>每周能练几天、每次多久、可用器械、有没有伤病禁忌。改完看动作库是否跟着变。</span></li>
-    <li><b>建一个长期目标</b><span>例如「3 个月减重 5kg」，看它拆出几个阶段、每周目标是什么。</span></li>
-    <li><b>生成一周计划</b><span>点「按我的情况生成计划」，试试改动作、改组数次数、调顺序、复制、删除。</span></li>
-    <li><b>逛动作库</b><span>搜索、按肌群/器械/难度筛选，点进详情看步骤与常见错误，把动作加入今日背包。</span></li>
-    <li><b>完整走一次训练</b><span>开始训练 → 逐组输入不同的重量和次数 → 试试暂停/继续 → 结束 → 看总结页。中途刷新页面，看记录还在不在。</span></li>
-    <li><b>看历史与成长</b><span>训练历史、统计数据、XP、等级、成就。反复刷新看 XP 会不会重复加分。</span></li>
+    <li><b>创建账号</b><span>约 30 秒：姓名、手机号，注册完自动生成你的会员号。</span></li>
+    <li><b>填写训练档案</b><span>每周能练几天、每次多久、有哪些器械 —— 填得越全，计划越准。</span></li>
+    <li><b>生成计划，开始第一练</b><span>一键生成一周计划到点就练；等不及也可以直接自由训练。</span></li>
   </ol>
 
   <div class="note">
-    <b>关于你的数据，请先知道这三点：</b>
-    <ul>
-      <li>数据只存在<b>你自己这台设备的浏览器里</b>，不会上传服务器，别人看不到你的记录。</li>
-      <li>换设备或换浏览器就是<b>新的空账号</b>，要用页面内的「导出 / 导入」才能迁移。</li>
-      <li>清理浏览器数据会<b>连同测试记录一起清掉</b>，测试期间请不要清理。</li>
-    </ul>
-  </div>
-
-  <div class="fb">
-    <b>反馈问题时，请一起给我这三样：</b><br>
-    ① 截图　② 当时在哪个页面　③ 你点了什么、原本期望发生什么
-  </div>
-
-  <div class="note">
-    <b>打不开怎么办？</b> 若浏览器提示「已被管理员阻止」或
-    <code>ERR_BLOCKED_BY_ADMINISTRATOR</code>，那是这台机器的浏览器只放行了白名单域名，
-    与链接本身无关 —— 换哪个网址都一样打不开。请点最下方「离线单文件版」，
-    下载后双击用浏览器打开，功能与在线版完全一致。
+    数据只保存在本机浏览器里，不上传服务器；换设备或换浏览器需要用页面内的「导出 / 导入」迁移。
   </div>
 
   <div class="mini">
-    <a href="./app/index.html">教练端</a>
-    <a href="./ai-coach/index.html">AI 动作教练</a>
+    <a href="./ai-coach/index.html">AI 姿势辅助</a>
     <a href="./standalone/fitness-xp-member.html" download>离线单文件版</a>
   </div>
-  <div class="foot">Fitness XP V1 · 静态内测版 · 手机竖屏体验最佳</div>
+  <div class="foot">公司或校园网络若提示「已被管理员阻止」，用离线单文件版即可 · 手机竖屏体验最佳</div>
 
 </div>
 </body>

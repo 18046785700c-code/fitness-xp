@@ -209,6 +209,9 @@ select:focus-visible, textarea:focus-visible, summary:focus-visible,
 }
 .m-card-hero .m-card-h h2 { font-size: var(--m-fs-page); }
 .m-card-hero .m-sub, .m-card-hero .m-p { color: var(--m-sub-ink); }
+/* hero 是柔紫底：次级文字必须用深一档的 sub-ink。
+   09 轮首页变短后，进度行上移落进了渐变紫区，用 --m-sub 只有 4.25:1 —— 实测被 V-4 抓住。 */
+.m-card-hero .m-hint { color: var(--m-sub-ink); }
 
 .m-card-h {
   display: flex; align-items: center; justify-content: space-between;
@@ -236,20 +239,54 @@ code {
   border-radius: 5px; padding: 1px 5px; font-size: var(--m-fs-xs); color: var(--m-purple-ink);
 }
 
-/* ---------- 常驻安全边界声明 ---------- */
+/* ---------- 常驻安全边界声明（07 轮起一行化：390 宽不折行，完整说明在设置页） ---------- */
 .m-banner {
   display: block;
   background: var(--m-yellow-l);
   border: 1px solid #F0E0BF;
   border-left: 4px solid var(--m-yellow);
   border-radius: var(--m-radius-sm);
-  padding: 10px 12px;
+  padding: 8px 12px;
   margin-bottom: var(--m-space-section);
   font-size: 12.5px;
   line-height: 1.55;
   color: var(--m-warn-ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .m-banner b { color: var(--m-warn-ink); }
+/* 09 轮：档案完善后由 JS 加 hidden 整条隐藏（.m-banner 是 display:block，必须显式覆盖） */
+.m-banner[hidden] { display: none; }
+/* 窄屏（<360）放不下一行时允许折行，别把信息裁掉 */
+@media (max-width: 359px) {
+  .m-banner { white-space: normal; }
+}
+
+/* ---------- 首页新手条：09 轮已整条移除 ----------
+   它和 hero 的「还差一份训练档案」说的是同一件事，新用户首屏被两份指引抢注意力。
+   档案页已有说明与「稍后，先随便看看」，不再需要第三条引导。样式一并删除。 */
+
+/* ---------- 计划页顶部提示（09 轮）----------
+   待办 + 「为什么慢」合成一条可折叠摘要：收起只占一行（标题 + 数字 + 展开），
+   展开才给原因和操作。计划页第一眼必须是本周计划，不是又一个仪表盘。 */
+.m-brief > summary {
+  display: flex; align-items: center; gap: 8px;
+  min-height: 32px; cursor: pointer; list-style: none;
+}
+.m-brief > summary::-webkit-details-marker { display: none; }
+.m-brief-t {
+  flex: 1; min-width: 0; margin: 0;
+  font-size: var(--m-fs-section); font-weight: 700;
+  overflow-wrap: anywhere;
+}
+.m-brief-x { flex: none; font-size: var(--m-fs-xs); font-weight: 600; color: var(--m-sub-ink); }
+.m-brief-x::after { content: ' 展开 ›'; }
+.m-brief[open] .m-brief-x::after { content: ' 收起 ‹'; }
+.m-brief-b { padding-top: 10px; }
+.m-brief-b .m-why { margin: 0 0 10px; }
+/* 摘要态只是一条提示，不是一张卡：内边距收窄，别在计划标题上方再立一块「仪表盘」 */
+.m-card-brief { padding: 10px var(--m-pad-card); margin-bottom: 10px; }
 
 /* ---------- 存储状态格 ---------- */
 .m-stat-row {
@@ -419,6 +456,16 @@ code {
 .m-hint.m-ok { color: var(--m-ok-ink); font-weight: 500; }
 .m-hint.m-warn { color: var(--m-warn-ink); }
 .m-hint.m-err { color: var(--m-err-ink); font-weight: 500; }
+/* 08 轮：提示行里的裸 <a>（首页次要入口「调整计划」、进度行「成长中心」等）
+   是文字链而不是按钮，但触控红线要求可点元素 ≥44px。
+   做法：上下 padding 把点击区撑到 44px，再用等值负 margin 抵消布局——
+   视觉完全不变（仍是 12.5px 的一行小字），只是热区变大了。 */
+.m-hint a,
+.m-p a {
+  display: inline-block;
+  padding: 14px 0;
+  margin: -14px 0;
+}
 
 /* ---------- 顶栏右侧 / 标签 ---------- */
 .m-top-in { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
@@ -648,6 +695,52 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
   font-style: normal; font-size: var(--m-fs-xs); color: var(--m-sub); margin-left: 6px;
 }
 .m-rowitem-s { flex: none; font-size: 14px; font-weight: 700; color: var(--m-purple-deep); }
+
+/* ---------- 「我的」列表（08 轮）：一行一入口，点进才展开 ---------- */
+.m-group-t {
+  font-size: var(--m-fs-xs); font-weight: 700; letter-spacing: .04em;
+  color: var(--m-sub); margin: 0 0 4px;
+}
+.m-cells { display: block; }
+.m-cell {
+  display: flex; align-items: center; gap: 10px;
+  min-height: 52px; padding: 10px 0;
+  text-decoration: none; color: var(--m-ink);
+}
+.m-cell + .m-cell { border-top: 1px solid var(--m-border); }
+.m-cell-t { flex: 1; min-width: 0; font-size: 14.5px; line-height: 1.45; }
+.m-cell-t em {
+  display: block; font-style: normal; font-size: var(--m-fs-xs);
+  color: var(--m-sub); margin-top: 2px;
+}
+.m-cell-v { flex: none; font-size: var(--m-fs-xs); color: var(--m-sub); }
+.m-cell-arrow { flex: none; font-size: 15px; color: var(--m-sub); }
+.m-cell:active { background: var(--m-purple-l); }
+
+/* ---------- 「更多」折叠组（09 轮）----------
+   「发现」与「数据」各只有 2 行，展开时占掉首屏一半，把档案 / 历史 / 成长挤下去。
+   收起态是一条 44px 的摘要行，点开才是完整入口；分组标题退到摘要行里，不再单独占一行。 */
+.m-fold > summary {
+  display: flex; align-items: center; gap: 8px;
+  min-height: 44px; cursor: pointer; list-style: none;
+}
+.m-fold > summary::-webkit-details-marker { display: none; }
+.m-fold-s b {
+  flex: none; font-size: var(--m-fs-xs); font-weight: 700;
+  letter-spacing: .04em; color: var(--m-sub);
+}
+.m-fold-s em {
+  flex: 1; min-width: 0; font-style: normal;
+  font-size: var(--m-fs-xs); color: var(--m-sub);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.m-fold-x { flex: none; font-size: var(--m-fs-xs); font-weight: 600; color: var(--m-purple-deep); }
+.m-fold-x::before { content: '展开'; }
+.m-fold[open] .m-fold-x::before { content: '收起'; }
+.m-fold-x::after { content: ' ›'; }
+.m-fold[open] .m-fold-x::after { content: ' ‹'; }
+/* 收起时列表整块不占位：details 原生行为已足够，这里只是把上边框补齐 */
+.m-fold[open] .m-cells { border-top: 1px solid var(--m-border); margin-top: 2px; }
 /* 「更多」是导航入口，必须够大够好点，不能是 19px 的裸文字 */
 .m-more {
   display: inline-flex; align-items: center;
