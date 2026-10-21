@@ -464,9 +464,19 @@ code {
   box-shadow: none;
 }
 
+/* V2.8：「刚记完一组」的高亮（400ms 防误触窗内按钮同时是 disabled）。
+   刻意用紫系而不是橙红 —— 橙红在本项目里是「练完 / 结算成功」的语义，
+   一组记完不等于练完，两者不能混色。 */
+.m-btn.m-btn-logged {
+  background: var(--m-purple-l) !important;
+  border-color: var(--m-purple) !important;
+  color: var(--m-purple-deep) !important;
+  box-shadow: none;
+}
+
 /* 尊重系统「减少动态效果」：去掉过渡与旋转，但保留瞬时状态色变化 */
 @media (prefers-reduced-motion: reduce) {
-  .m-btn, .m-btn-loading::after, .m-tab, .m-tab2, .m-bar > i, .m-chip-x {
+  .m-btn, .m-btn-loading::after, .m-tab, .m-tab2, .m-bar > i, .m-chip-x, .m-prog > i {
     transition: none; animation: none;
   }
 }
@@ -966,6 +976,15 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
 /* 组计数是当前页第二个要读的数字，比目标参数大一号，但不跟动作名抢 */
 .m-setn { margin-top: 10px; font-size: var(--m-fs-sm); color: var(--m-sub); }
 .m-setn b { color: var(--m-purple-deep); font-size: 17px; }
+/* V2.8：本动作分段进度条。段数 = 目标组数，亮起 = 已记组数，与上面的数字同源同帧渲染；
+   纯 CSS，不引动画库；目标组数缺失时 JS 根本不渲染它（没有分母就不画百分比）。 */
+.m-prog { display: flex; gap: 3px; margin-top: 8px; }
+.m-prog > i {
+  flex: 1 1 0; height: 8px; min-width: 4px;
+  border-radius: 3px; background: #EFEDF6; border: 1px solid var(--m-border);
+  transition: background .15s ease, border-color .15s ease;
+}
+.m-prog > i.on { background: var(--m-purple); border-color: var(--m-purple); }
 .m-form-row { grid-template-columns: repeat(2, 1fr); }
 
 /* 重量 / 次数输入：整个执行页最大的两个控件。
@@ -1247,6 +1266,18 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
 }
 .m-tsum li:last-child { border-bottom: none; }
 .m-tsum li em { font-style: normal; flex: none; color: var(--m-sub-ink); font-size: var(--m-fs-xs); }
+/* V2.8 P1-C：动作进行状态。只读派生自 m_sets，不落任何字段、不做勾选存储。
+   进行中（n/N 组）用次级墨色；已完成用橙红墨色（完成=橙红，与「练完」同语义）；
+   未开始更淡——它只是告诉你「还没碰」，不该和上面两类抢注意力。 */
+.m-tsum li i.m-tsum-st {
+  flex: none; font-style: normal; font-size: var(--m-fs-xs);
+  margin-left: 2px; color: var(--m-sub-ink); white-space: nowrap;
+}
+.m-tsum-st.m-st-done { color: var(--m-done-ink); font-weight: 600; }
+.m-tsum-st.m-st-idle { color: var(--m-sub); }
+/* 计划页「去开练」引导：紧凑一行，靠既有 .m-hint a 的 44px 触控，不另造按钮 */
+.m-plan-go { margin-top: 6px; }
+.m-plan-go b { color: var(--m-text); }
 /* 完成态：降对比度、不铺全量，让「今日已完成」按钮成为唯一焦点。
    15 轮：这一行是「今日 N 个动作」的入口（整行可点 → 该次训练总结），
    所以淡化归淡化，触控区仍要 ≥44px——弱化视觉不等于弱化可点性。 */
@@ -13176,6 +13207,33 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
     return n;
   }
 
+  /**
+   * 今日每个动作**实际已记的组数**（V2.8 决策 4 / P1-C）：{ exercise_id: 组数 }，纯读 m_sets。
+   *
+   * 口径（先核实过字段语义，不是猜的）：
+   *   · 只数「进行中」与「今天已完成」的会话。m_sessions.session_date 建会话时写死、
+   *     abandon 不改（fxp-member-session.js:187/527），所以 abandoned 会话是「今天开始过但放弃了」，
+   *     它的组按保守排除 —— 放弃的训练不该在清单上显示为进度。
+   *   · m_sets 没有作废字段（schema:257-275），撤销是物理删除（session.js:358），
+   *     所以「表里有几条就是记了几组」，不需要过滤。
+   *   · 完成判定沿用全项目唯一的业务口径 currentPlanItem：done >= target_sets 才算这个动作完成。
+   *     加入背包 / 确认背包 / 开始训练都不算完成，这里也只认 m_sets。
+   */
+  function todayDoneSetsByExercise() {
+    var map = {}, ids = [];
+    var live = liveSession();
+    if (live) ids.push(live.session_id);
+    todayCompletedSessions().forEach(function (x) { ids.push(x.session_id); });
+    ids.forEach(function (sid) {
+      SES.setsOf(store, sid).forEach(function (r) {
+        var k = r.exercise_id || r.exercise_name_snapshot;
+        if (!k) return;
+        map[k] = (map[k] || 0) + 1;
+      });
+    });
+    return map;
+  }
+
   /** 当前未结束的会话（in_progress / paused），最近开始的那条。今日态判定与进度读数共用。 */
   function liveSession() {
     return store.all('m_sessions').filter(function (s) {
@@ -13401,6 +13459,7 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
     var src = bag ? bagItems(bag.bag_id) : [];
     if (!src.length) src = todayPlanItems();
     var seen = {}, rows = [];
+    var doneMap = todayDoneSetsByExercise();
     src.forEach(function (it) {
       var key = it.exercise_id || it.exercise_name_snapshot;
       if (!key || seen[key]) return;
@@ -13409,10 +13468,48 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
         name: it.exercise_name_snapshot,
         sets: it.target_sets,
         reps: it.target_reps,
-        weight: it.target_weight
+        weight: it.target_weight,
+        doneSets: doneMap[key] || 0
       });
     });
     return rows;
+  }
+
+  /**
+   * 一个动作的进行状态（只读，不落任何字段、不做勾选存储）。
+   *   未开始  done === 0
+   *   进行中  0 < done < target        → 「n/N 组」
+   *   已完成  done >= target           → 「已完成」
+   * target 缺失或不是合法的正整数（自由训练 / 数据异常）→ 只给「已记 n 组」，
+   * **不判断完成**：没有分母就不该出现百分比或勾。
+   */
+  function itemProgressText(done, target) {
+    var d = +done || 0, t = parseInt(target, 10);
+    if (d <= 0) return '';
+    if (!(t >= 1)) return '已记 ' + d + ' 组';
+    if (d >= t) return '已完成';
+    return d + '/' + t + ' 组';
+  }
+
+  /**
+   * 计划页顶部的「去开练」常驻引导（V2.8 决策 5 / Q3）。
+   *   训练进行中 → 指 #workout/:id（这时候再喊「去开练」是误导）
+   *   今日背包非空 → 一行文字链 → #bag
+   *   背包为空     → 不显示（空引导比没引导更烦）
+   * 只指路、不代劳：开练仍然要用户在 #bag 点「确认并开始训练」，
+   * 这里不自动建会话、不绕过背包确认语义、不写任何表（todayBag 只查不建）。
+   */
+  function planGoHtml() {
+    var live = liveSession();
+    if (live) {
+      return '<p class="m-hint m-plan-go">今天的训练还没结束。'
+        + '<a href="#workout/' + esc(live.session_id) + '">去继续 →</a></p>';
+    }
+    var bag = todayBag();
+    var n = bag ? bagItems(bag.bag_id).length : 0;
+    if (!n) return '';
+    return '<p class="m-hint m-plan-go">今日背包已有 <b>' + n + '</b> 个动作。'
+      + '<a href="#bag">去开始训练 →</a></p>';
   }
 
   /** 重量显示：自重动作是 0 或空，打「× 0kg」是噪音，只在真有配重时出现 */
@@ -13452,10 +13549,18 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
        done 的数不来自这里，若先早退，没排计划的人练完就会整行消失、又是那片空白。 */
     var rows = todayPreview();
     if (!rows.length) return head;
+    /* 只有训练真的开始过（resume）才标「未开始」——还没开练时，一整排「未开始」是噪音。 */
+    var showIdle = (act.kind === 'resume');
     var li = rows.map(function (r) {
+      var st = itemProgressText(r.doneSets, r.sets), cls = 'm-tsum-st';
+      if (st === '已完成') cls += ' m-st-done';
+      else if (st) cls += ' m-st-run';
+      else if (showIdle) { st = '未开始'; cls += ' m-st-idle'; }
       return '<li><span>' + esc(r.name || '') + '</span>'
         + '<em>' + esc(String(r.sets || '-')) + ' 组 × ' + esc(String(r.reps || '-')) + ' 次'
-        + itemWeightText(r.weight) + '</em></li>';
+        + itemWeightText(r.weight) + '</em>'
+        + (st ? '<i class="' + cls + '">' + esc(st) + '</i>' : '')
+        + '</li>';
     }).join('');
     return head + '<ul class="m-tsum" aria-label="今日动作">' + li + '</ul>';
   }
@@ -14802,6 +14907,8 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
       + '可用器械、身体限制；档案填得不准，排出来的就不准。可以<a href="#profile">改档案</a>，'
       + '或创建空白计划自己排一周。</p>'
       + '<div class="m-hint" id="planMsg"></div>'
+      /* Q3：常驻「去开练」引导——今日背包非空才出现，只是一条文字链，不新增按钮、不建会话 */
+      + planGoHtml()
       + '</section>';
 
     if (!entries.length) {
@@ -15125,6 +15232,14 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
         });
         if (r.ok === false) { toast(r.message || r.reason, 'err'); return; }
         run(r, '已加入今日背包（复制，不会改动计划）');
+        render();
+        /* 提示必须写在 render() 之后：渲染前拿到的 #planMsg 已成 detached 节点，
+           写进去会随旧节点一起丢（12 轮教训）。成功才写，失败路径上面已 return。 */
+        var pm = $('planMsg');
+        if (pm) {
+          pm.className = 'm-hint m-ok';
+          pm.innerHTML = '已加入今日背包 · <a href="#bag">去开练 →</a>';
+        }
       });
     });
     document.querySelectorAll('[data-pi-add]').forEach(function (b) {
@@ -15330,6 +15445,53 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
    */
   var wExPick = null;
 
+  /**
+   * 记组的防误触与待保存状态（V2.8 决策 1 / Q2）。
+   *
+   * 为什么必须是模块级而不是改 DOM 节点属性：记组成功后会 render() 重建整页，
+   * 按钮是一个**新节点**——在旧节点上写 disabled 会被重建直接抹掉，连点照样记多组。
+   * 所以闸门值存在模块里，由渲染函数把 disabled 画进新节点里。
+   *
+   *   wLogBusy    一次记组正在处理中（当前是同步的，留着防将来改成异步）
+   *   wLogLocked  成功记录后的 400ms 静默窗；窗内点击一律忽略，渲染时把 disabled 画进节点
+   *               —— 用布尔 + setTimeout 而不是时间戳：时间戳在时钟被固定的环境里
+   *                 永远不会过期（ui-persona 用 setFixedTime 冻结 Date.now），闸门就再也打不开。
+   *   wPendingSave 记组已入内存但 store.save() 失败时挂起的那一组
+   *               —— 只要它存在就**禁止再记下一组**（否则刷新会丢，再记又会重复）
+   *   wRetryBusy  重试保存进行中，防连点重复调用 persist
+   *
+   * 防误触只管交互，不代替领域层的幂等：`SES.logSet` 本身每次只插一条 m_sets，
+   * 这里保证的是「一次点击最多一组」，以及「写盘没成功时不继续往下写」。
+   */
+  var wLogBusy = false, wLogLocked = false, wPendingSave = null, wRetryBusy = false;
+
+  /** 摘掉按钮的禁用与高亮（不重渲染，避免清掉用户正要填的下一组） */
+  function unlockLog() {
+    var b = document.getElementById('btnLogSet');
+    if (b) { b.disabled = false; b.classList.remove('m-btn-logged'); }
+  }
+  /** 进入 400ms 静默窗，并预约解锁。解锁函数必须是模块级的——定时器跑在模块作用域里。 */
+  function lockLog() {
+    wLogLocked = true;
+    setTimeout(function () { wLogLocked = false; unlockLog(); }, 400);
+  }
+
+  /**
+   * 分段进度条：本动作已完成 / 目标 组数。
+   * 只在目标组数是 1–20 的合法整数时渲染——自由训练没有 plan_snapshot、
+   * 也就没有目标组数，那画一条进度条等于编一个百分比，宁可不画（保守展示）。
+   * 段数与亮起数都取自同一个 curSets.length，与上面的「已完成 N 组」同源。
+   */
+  function setProgressHtml(done, target) {
+    var t = parseInt(target, 10);
+    if (!(t >= 1 && t <= 20)) return '';
+    var d = Math.max(0, Math.min(+done || 0, t));
+    var seg = '';
+    for (var i = 0; i < t; i++) seg += '<i' + (i < d ? ' class="on"' : '') + '></i>';
+    return '<div class="m-prog" role="img" aria-label="本动作已完成 ' + d + ' / ' + t + ' 组">'
+      + seg + '</div>';
+  }
+
   function pageWorkout(r) {
     var s = store.find('m_sessions', r.id);
     if (!s || s.member_id !== ctx.member_id) {
@@ -15378,6 +15540,9 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
       + '</div>'
       + '<div class="m-setn">已完成 <b>' + curSets.length + '</b> 组'
       + (cur ? ' / ' + esc(cur.target_sets) : '') + ' · 本次共 ' + sets.length + ' 组</div>'
+      /* V2.8 决策 2：分段进度条（纯 CSS）。放在 .m-setn **外面**——它和上面的数字取同一份
+         curSets.length，但 .m-setn 的 innerText 被既有测试直接读取，不能被塞进新文本。 */
+      + setProgressHtml(curSets.length, cur ? cur.target_sets : 0)
       + '</section>'
 
       + (cur ? '' : '<section class="m-card"><div class="m-card-h"><h2>选择动作</h2></div>'
@@ -15404,10 +15569,20 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
       + (prev ? esc(prev.reps) : (cur ? esc(cur.target_reps) : '')) + '"></label>'
       + '</div>'
       + '<div class="m-btn-row">'
-      + '<button class="m-btn m-btn-primary m-btn-lg" id="btnLogSet">完成本组</button>'
+      /* 防误触闸门期内直接把 disabled 画进节点（说明见 wLogUntil 的注释）。
+         .m-btn-logged 是「刚记成功」的高亮，400ms 后由 JS 摘掉。 */
+      + '<button class="m-btn m-btn-primary m-btn-lg'
+      + (wLogLocked ? ' m-btn-logged' : '') + '" id="btnLogSet"'
+      + (wLogLocked ? ' disabled' : '') + '>完成本组</button>'
       + (prev ? '<button class="m-btn m-btn-ghost" id="btnCopyPrev">复制上一组</button>' : '')
       + (sets.length ? '<button class="m-btn m-btn-ghost" id="btnUndoSet">撤销上一组</button>' : '')
-      + '</div><div class="m-hint" id="wMsg"></div>'
+      + '</div>'
+      /* Q2：写盘失败时这一组还在内存里、还没进本机存储，给一个只做 persist 的重试入口。
+         它绝不重新记组、不碰 XP，重复点也不会多写一条。 */
+      + (wPendingSave
+        ? '<div class="m-btn-row"><button class="m-btn m-btn-ghost" id="btnRetrySave">重试保存</button></div>'
+        : '')
+      + '<div class="m-hint" id="wMsg"></div>'
       + '</section>'
 
       + (curSets.length ? '<section class="m-card"><div class="m-card-h"><h2>本动作已记录</h2></div>'
@@ -15463,23 +15638,71 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
       return sel ? sel.value : '';
     }
 
+    /* 提示节点在 render() 之后是新节点：一律重新取，别拿渲染前的旧引用（12 轮教训） */
+    function say(cls, text) {
+      var m = $('wMsg');
+      if (m) { m.className = 'm-hint' + (cls ? ' ' + cls : ''); m.textContent = text; }
+    }
+    /* 400ms 静默窗结束：只摘当前节点的属性，不重渲染（重渲染会清掉用户正要填的下一组） */
     var log = $('btnLogSet');
     if (log) log.addEventListener('click', function () {
+      /* 闸门期内的点击直接忽略：不提示、不动数据。用户看到的是按钮变灰（渲染时已 disabled） */
+      if (wLogBusy || wLogLocked) return;
+      /* 上一组还没存成功就别再记下一组：刷新会丢这一组，再记一次又变成两条 */
+      if (wPendingSave) { say('m-err', '上一组还没保存成功，请先点「重试保存」。'); return; }
       var exId = curExId();
-      if (!exId) { if (msg) { msg.className = 'm-hint m-err'; msg.textContent = '请先选择动作'; } return; }
+      if (!exId) { say('m-err', '请先选择动作'); return; }
       /* 非法输入即时拦截，不允许提交后才发现（02 §E.2） */
-      var rr = SES.logSet(store, ctx.member_id, s.session_id, {
-        exercise_id: exId,
-        weight: $('wWeight') ? $('wWeight').value : '',
-        reps: $('wReps') ? $('wReps').value : ''
-      }, { persist: persist });
-      if (rr.ok === false) {
-        if (msg) { msg.className = 'm-hint m-err'; msg.textContent = rr.message || rr.reason; }
-        return;
-      }
-      if (msg) { msg.className = 'm-hint m-ok'; msg.textContent = '第 ' + rr.setIndex + ' 组已记录并保存'; }
-      render();
+      wLogBusy = true;
+      try {
+        var rr = SES.logSet(store, ctx.member_id, s.session_id, {
+          exercise_id: exId,
+          weight: $('wWeight') ? $('wWeight').value : '',
+          reps: $('wReps') ? $('wReps').value : ''
+        }, {
+          /* 领域层靠「persist 的返回值是不是 {ok:false}」判定写盘成败（session.js:319-322），
+             而本地 persist() 返回的是布尔值 —— 直接传函数过去，布尔 false 不满足
+             `pr && pr.ok === false`，persisted 会恒为 true，写盘失败也被说成「已保存」。
+             这里在 UI 侧做一次适配，领域层的判定语义一点不改。 */
+          persist: function () {
+            return persist() ? true : { ok: false, message: '保存失败' };
+          }
+        });
+        if (rr.ok === false) { say('m-err', rr.message || rr.reason); return; }
+        if (rr.persisted === false) {
+          /* 领域层已把这一组写进内存表（m_sets 多了一条），但 store.save() 失败＝本机没落盘。
+             文案必须如实——写「已保存」是谎报；同时挂起待保存，禁止继续往下记。 */
+          wPendingSave = { setId: rr.set.set_id, setIndex: rr.setIndex };
+          render();
+          say('m-err', '第 ' + rr.setIndex + ' 组已记录，但没能保存到本机。请点「重试保存」，'
+            + '否则刷新会丢失这一组。');
+          /* 400ms 后照样解锁（禁用只是防误触，不是处罚）：拦住继续记组的是 wPendingSave，
+             用户再点会看到「请先点重试保存」，比一个永远灰着的按钮说得清楚。 */
+          lockLog();
+          return;
+        }
+        lockLog();
+        render();
+        say('m-ok', '第 ' + rr.setIndex + ' 组已记录并保存');
+      } finally { wLogBusy = false; }
     });
+
+    /* Q2：写盘失败后的重试。只调 persist()，不重新记组、不碰 XP、不写任何业务字段。 */
+    var rs = $('btnRetrySave');
+    if (rs) rs.addEventListener('click', function () {
+      if (wRetryBusy) return;
+      wRetryBusy = true;
+      try {
+        if (!persist()) { say('m-err', '还是没保存成功，可以再试一次。'); return; }
+        var n = wPendingSave ? wPendingSave.setIndex : '';
+        wPendingSave = null;
+        lockLog();
+        render();
+        say('m-ok', '第 ' + n + ' 组已保存');
+      } finally { wRetryBusy = false; }
+    });
+    /* 切页回来时若仍挂着待保存，把状态摆在提示位，别让按钮看着像一切正常 */
+    if (wPendingSave) say('m-err', '第 ' + wPendingSave.setIndex + ' 组还没保存到本机，请点「重试保存」。');
 
     var cp = $('btnCopyPrev');
     if (cp) cp.addEventListener('click', function () {
@@ -15501,6 +15724,29 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
 
     var fin = $('btnFinish');
     if (fin) fin.addEventListener('click', function () {
+      /*
+       * 审计发现（V2.8 收口）：原先这里不看 wPendingSave —— 写盘一直失败时可以直接结算，
+       * 于是「会话已 completed、XP 已发放、但本机一条都没落盘」的状态被推进下去，
+       * 刷新后整次训练丢失且状态错乱，比丢一组严重得多。
+       *
+       * 这里与记组闸门取同一口径：**没落盘就不继续往下写**。
+       * 先自动重试一次（等于替用户点一下「重试保存」），成功了就照常结算；
+       * 仍失败才拦住，并说明先做什么。正常路径（wPendingSave 为 null）零影响。
+       */
+      if (wPendingSave) {
+        if (persist()) {
+          wPendingSave = null;
+        } else {
+          /* 提示节点要现取：上面的 render() 已经把它变成 detached 节点（12 轮教训） */
+          var em = $('wEndMsg');
+          if (em) {
+            em.className = 'm-hint m-err';
+            em.textContent = '第 ' + wPendingSave.setIndex + ' 组还没保存到本机，'
+              + '请先点「重试保存」再结束这次训练。';
+          }
+          return;
+        }
+      }
       var f = $('wFeeling') ? $('wFeeling').value : '';
       var rr = SES.complete(store, ctx.member_id, s.session_id, { feeling: f });
       if (rr.ok === false) {

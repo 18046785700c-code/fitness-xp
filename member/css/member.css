@@ -444,9 +444,19 @@ code {
   box-shadow: none;
 }
 
+/* V2.8：「刚记完一组」的高亮（400ms 防误触窗内按钮同时是 disabled）。
+   刻意用紫系而不是橙红 —— 橙红在本项目里是「练完 / 结算成功」的语义，
+   一组记完不等于练完，两者不能混色。 */
+.m-btn.m-btn-logged {
+  background: var(--m-purple-l) !important;
+  border-color: var(--m-purple) !important;
+  color: var(--m-purple-deep) !important;
+  box-shadow: none;
+}
+
 /* 尊重系统「减少动态效果」：去掉过渡与旋转，但保留瞬时状态色变化 */
 @media (prefers-reduced-motion: reduce) {
-  .m-btn, .m-btn-loading::after, .m-tab, .m-tab2, .m-bar > i, .m-chip-x {
+  .m-btn, .m-btn-loading::after, .m-tab, .m-tab2, .m-bar > i, .m-chip-x, .m-prog > i {
     transition: none; animation: none;
   }
 }
@@ -946,6 +956,15 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
 /* 组计数是当前页第二个要读的数字，比目标参数大一号，但不跟动作名抢 */
 .m-setn { margin-top: 10px; font-size: var(--m-fs-sm); color: var(--m-sub); }
 .m-setn b { color: var(--m-purple-deep); font-size: 17px; }
+/* V2.8：本动作分段进度条。段数 = 目标组数，亮起 = 已记组数，与上面的数字同源同帧渲染；
+   纯 CSS，不引动画库；目标组数缺失时 JS 根本不渲染它（没有分母就不画百分比）。 */
+.m-prog { display: flex; gap: 3px; margin-top: 8px; }
+.m-prog > i {
+  flex: 1 1 0; height: 8px; min-width: 4px;
+  border-radius: 3px; background: #EFEDF6; border: 1px solid var(--m-border);
+  transition: background .15s ease, border-color .15s ease;
+}
+.m-prog > i.on { background: var(--m-purple); border-color: var(--m-purple); }
 .m-form-row { grid-template-columns: repeat(2, 1fr); }
 
 /* 重量 / 次数输入：整个执行页最大的两个控件。
@@ -1227,6 +1246,18 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
 }
 .m-tsum li:last-child { border-bottom: none; }
 .m-tsum li em { font-style: normal; flex: none; color: var(--m-sub-ink); font-size: var(--m-fs-xs); }
+/* V2.8 P1-C：动作进行状态。只读派生自 m_sets，不落任何字段、不做勾选存储。
+   进行中（n/N 组）用次级墨色；已完成用橙红墨色（完成=橙红，与「练完」同语义）；
+   未开始更淡——它只是告诉你「还没碰」，不该和上面两类抢注意力。 */
+.m-tsum li i.m-tsum-st {
+  flex: none; font-style: normal; font-size: var(--m-fs-xs);
+  margin-left: 2px; color: var(--m-sub-ink); white-space: nowrap;
+}
+.m-tsum-st.m-st-done { color: var(--m-done-ink); font-weight: 600; }
+.m-tsum-st.m-st-idle { color: var(--m-sub); }
+/* 计划页「去开练」引导：紧凑一行，靠既有 .m-hint a 的 44px 触控，不另造按钮 */
+.m-plan-go { margin-top: 6px; }
+.m-plan-go b { color: var(--m-text); }
 /* 完成态：降对比度、不铺全量，让「今日已完成」按钮成为唯一焦点。
    15 轮：这一行是「今日 N 个动作」的入口（整行可点 → 该次训练总结），
    所以淡化归淡化，触控区仍要 ≥44px——弱化视觉不等于弱化可点性。 */
