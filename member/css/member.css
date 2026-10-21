@@ -891,6 +891,30 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
 /* 计划页按钮下方的说明：自动生成依赖档案这件事必须写在按钮旁边 */
 .m-plan-note { margin-top: 8px; }
 
+/* ---------- 计划/背包项：组数·次数·重量行内微调（替代连续 prompt） ----------
+   ± 与数字框一律 44px：手机上「每次多两组」是最常见的微调动作，不能做成小热区。 */
+.m-iedit {
+  background: var(--m-bg); border: 1px solid var(--m-border);
+  border-radius: var(--m-radius-sm); padding: 10px; margin-top: 8px;
+}
+.m-iedit-h { font-size: var(--m-fs-sm); font-weight: 600; color: var(--m-text); margin-bottom: 8px; }
+.m-iedit-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.m-iedit-lb { flex: none; width: 42px; font-size: var(--m-fs-sm); color: var(--m-sub-ink); }
+.m-step {
+  flex: none; width: 44px; height: 44px; font: inherit; font-size: 18px; line-height: 1;
+  background: var(--m-card); color: var(--m-purple-deep);
+  border: 1px solid var(--m-border); border-radius: var(--m-radius-sm); cursor: pointer;
+}
+.m-step:active { border-color: var(--m-purple); box-shadow: var(--m-shadow); }
+.m-iedit-num {
+  width: 72px; min-height: 44px; text-align: center; font: inherit; font-size: 16px;
+  border: 1px solid var(--m-border); border-radius: var(--m-radius-sm);
+  background: var(--m-card); color: var(--m-text);
+}
+/* 重量是唯一可能被清空的一栏：给足宽度放 placeholder 说明 */
+.m-iedit-w { flex: 1; width: auto; text-align: left; padding: 0 12px; }
+.m-iedit-msg { margin: 4px 0 0; }
+
 /* ---------- 今日背包 ---------- */
 .m-bagitem {
   background: #fff; border: 1px solid var(--m-border);

@@ -13533,6 +13533,86 @@
     q.focus();
   }
 
+  /* 组数 / 次数的合法区间与领域层 updatePlanItem / updateBagItem 完全一致（sets 1-20、reps 1-999）。
+     这里只做即时提示，真正的校验与落库仍在领域层，UI 不另立门户。 */
+  var IE_LIMITS = { target_sets: [1, 20], target_reps: [1, 999] };
+
+  /**
+   * openItemEditor(host, item, apply) —— 计划项 / 背包项的行内微调面板。
+   *
+   * 为什么不再用三次 prompt：连续「组数 → 次数 → 重量」弹窗，想只调次数也得先过两道，
+   * 而且每次改完看不到上下文（不知道现在是多少、改完会变成多少）。
+   * 这里改成同屏一组「− 数字 +」加一个可空的重量框，改哪项点哪项；保存依旧只走
+   * PLAN.updatePlanItem / PLAN.updateBagItem，规则一点没动。
+   */
+  function openItemEditor(host, item, apply) {
+    if (!host || !item) return;
+    var old = host.querySelector('.m-iedit');
+    if (old) { old.parentNode.removeChild(old); return; }      /* 再点一次收起 */
+
+    var stepRow = function (f, label) {
+      return '<div class="m-iedit-row"><span class="m-iedit-lb">' + label + '</span>'
+        + '<button class="m-step" type="button" data-step="' + f + '" data-dir="-1" aria-label="减少' + label + '">−</button>'
+        + '<input class="m-iedit-num" type="number" inputmode="numeric" data-f="' + f + '"'
+        + ' min="' + IE_LIMITS[f][0] + '" max="' + IE_LIMITS[f][1] + '" value="' + esc(item[f]) + '">'
+        + '<button class="m-step" type="button" data-step="' + f + '" data-dir="1" aria-label="增加' + label + '">+</button>'
+        + '</div>';
+    };
+
+    var box = document.createElement('div');
+    box.className = 'm-iedit';
+    box.innerHTML = '<div class="m-iedit-h">调整目标值</div>'
+      + stepRow('target_sets', '组数')
+      + stepRow('target_reps', '次数')
+      + '<div class="m-iedit-row"><span class="m-iedit-lb">重量</span>'
+      + '<input class="m-iedit-num m-iedit-w" type="number" inputmode="decimal" data-f="target_weight"'
+      + ' placeholder="自重动作留空" value="'
+      + esc(item.target_weight == null ? '' : item.target_weight) + '"></div>'
+      + '<div class="m-btn-row"><button class="m-btn" type="button" data-iedit-save="1">保存</button>'
+      + '<button class="m-btn m-btn-ghost" type="button" data-iedit-cancel="1">取消</button></div>'
+      + '<p class="m-hint m-iedit-msg"></p>';
+    host.appendChild(box);
+
+    var msg = box.querySelector('.m-iedit-msg');
+    /* 用 classList 追加而不是改 className：后者会把 m-iedit-msg 一起顶掉，
+       提示元素就再也选不到了（视觉上样式也跟着丢）。 */
+    function say(t) {
+      msg.classList.add('m-err');
+      msg.textContent = t;
+    }
+
+    box.querySelectorAll('[data-step]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var f = b.getAttribute('data-step');
+        var input = box.querySelector('[data-f="' + f + '"]');
+        var lo = IE_LIMITS[f][0], hi = IE_LIMITS[f][1];
+        var v = parseInt(input.value, 10);
+        if (!isFinite(v)) v = lo;
+        input.value = Math.min(hi, Math.max(lo, v + (+b.getAttribute('data-dir'))));
+        msg.textContent = '';
+      });
+    });
+
+    box.querySelector('[data-iedit-cancel]').addEventListener('click', function () {
+      box.parentNode.removeChild(box);
+    });
+    box.querySelector('[data-iedit-save]').addEventListener('click', function () {
+      var sets = parseInt(box.querySelector('[data-f="target_sets"]').value, 10);
+      var reps = parseInt(box.querySelector('[data-f="target_reps"]').value, 10);
+      var wRaw = String(box.querySelector('[data-f="target_weight"]').value || '').trim();
+      /* 校验失败留在面板里的 hint，不静默、也不清空会员刚填的数 */
+      if (!isFinite(sets) || sets < 1 || sets > 20) { say('组数要填 1–20 之间的整数。'); return; }
+      if (!isFinite(reps) || reps < 1 || reps > 999) { say('每组次数要填 1–999 之间的整数。'); return; }
+      if (wRaw !== '' && (!isFinite(+wRaw) || +wRaw < 0)) { say('重量填数字（kg），自重动作留空就行。'); return; }
+      var r = apply(item, { target_sets: sets, target_reps: reps, target_weight: wRaw });
+      if (r.ok === false) { say(r.message || r.reason); toast(r.message || r.reason, 'err', 5000); return; }
+      run(r, '已更新'); render();
+    });
+
+    var first = box.querySelector('[data-f="target_reps"]');
+    if (first) first.focus();
+  }
+
   function bindPlan() {
     var week = parseHash().q.week || PLAN.mondayOf(today());
     var msg = $('planMsg');
@@ -13613,16 +13693,9 @@
       b.addEventListener('click', function () {
         var it = store.find('m_plan_items', b.getAttribute('data-pi-edit'));
         if (!it) return;
-        var sets = W.prompt('目标组数：', String(it.target_sets));
-        if (sets === null) return;
-        var reps = W.prompt('每组次数：', String(it.target_reps));
-        if (reps === null) return;
-        var wgt = W.prompt('参考重量（自重动作留空）：', String(it.target_weight || ''));
-        if (wgt === null) return;
-        var r = PLAN.updatePlanItem(store, ctx.member_id, it.plan_item_id,
-          { target_sets: sets, target_reps: reps, target_weight: wgt });
-        if (r.ok === false) { toast(r.message || r.reason, 'err'); return; }
-        run(r, '已更新'); render();
+        openItemEditor(b.closest ? b.closest('.m-planitem') : null, it, function (item, patch) {
+          return PLAN.updatePlanItem(store, ctx.member_id, item.plan_item_id, patch);
+        });
       });
     });
     document.querySelectorAll('[data-pi-bag]').forEach(function (b) {
@@ -13775,16 +13848,9 @@
       b.addEventListener('click', function () {
         var it = store.find('m_bag_items', b.getAttribute('data-bi-edit'));
         if (!it) return;
-        var sets = W.prompt('目标组数：', String(it.target_sets));
-        if (sets === null) return;
-        var reps = W.prompt('每组次数：', String(it.target_reps));
-        if (reps === null) return;
-        var wgt = W.prompt('参考重量（自重动作留空）：', String(it.target_weight || ''));
-        if (wgt === null) return;
-        var r = PLAN.updateBagItem(store, ctx.member_id, it.bag_item_id,
-          { target_sets: sets, target_reps: reps, target_weight: wgt });
-        if (r.ok === false) { toast(r.message || r.reason, 'err'); return; }
-        run(r, '已更新'); render();
+        openItemEditor(b.closest ? b.closest('.m-bagitem') : null, it, function (item, patch) {
+          return PLAN.updateBagItem(store, ctx.member_id, item.bag_item_id, patch);
+        });
       });
     });
     document.querySelectorAll('[data-bi-rep]').forEach(function (b) {
