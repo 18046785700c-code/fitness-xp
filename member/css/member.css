@@ -1138,6 +1138,30 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
 .m-aibadge-B { background: var(--m-yellow-l); color: var(--m-warn-ink); border-color: #EFDCB2; }
 .m-aibadge-C { background: #F4F3F8; color: var(--m-sub); border-color: var(--m-border); }
 
+/* ---------- V2.7 · AI 页可监测动作列表（.m-ailist 已被动作详情页占用，这里另起名） ---------- */
+.m-monlist { display: grid; gap: 0; }
+.m-monrow {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  min-height: 40px; padding: 8px 0;
+  border-bottom: 1px solid var(--m-border);
+  font-size: var(--m-fs-sm); color: var(--m-ink);
+}
+.m-monrow:last-child { border-bottom: none; }
+
+/* ---------- V2.7 · 首页今日动作摘要（只读、最多 3 行 + 「等 N 个动作」） ---------- */
+.m-tsum {
+  list-style: none; margin: 12px 0 0; padding: 10px 12px 0;
+  border-top: 1px solid var(--m-border);
+}
+.m-tsum li {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+  padding: 4px 0; font-size: var(--m-fs-sm); color: var(--m-ink);
+  overflow-wrap: anywhere;
+}
+.m-tsum li em { font-style: normal; flex: none; color: var(--m-sub-ink); font-size: var(--m-fs-xs); }
+.m-tsum li em b { font-size: var(--m-fs-sm); }
+.m-tsum .m-tsum-more { justify-content: flex-end; color: var(--m-sub-ink); font-size: var(--m-fs-xs); }
+
 .m-airow { margin-top: 10px; }
 .m-airow b { display: block; font-size: var(--m-fs-sm); margin-bottom: 4px; }
 .m-ailist { margin: 0; padding-left: 18px; font-size: var(--m-fs-sm); color: var(--m-sub); }

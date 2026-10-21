@@ -1158,6 +1158,30 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
 .m-aibadge-B { background: var(--m-yellow-l); color: var(--m-warn-ink); border-color: #EFDCB2; }
 .m-aibadge-C { background: #F4F3F8; color: var(--m-sub); border-color: var(--m-border); }
 
+/* ---------- V2.7 · AI 页可监测动作列表（.m-ailist 已被动作详情页占用，这里另起名） ---------- */
+.m-monlist { display: grid; gap: 0; }
+.m-monrow {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  min-height: 40px; padding: 8px 0;
+  border-bottom: 1px solid var(--m-border);
+  font-size: var(--m-fs-sm); color: var(--m-ink);
+}
+.m-monrow:last-child { border-bottom: none; }
+
+/* ---------- V2.7 · 首页今日动作摘要（只读、最多 3 行 + 「等 N 个动作」） ---------- */
+.m-tsum {
+  list-style: none; margin: 12px 0 0; padding: 10px 12px 0;
+  border-top: 1px solid var(--m-border);
+}
+.m-tsum li {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+  padding: 4px 0; font-size: var(--m-fs-sm); color: var(--m-ink);
+  overflow-wrap: anywhere;
+}
+.m-tsum li em { font-style: normal; flex: none; color: var(--m-sub-ink); font-size: var(--m-fs-xs); }
+.m-tsum li em b { font-size: var(--m-fs-sm); }
+.m-tsum .m-tsum-more { justify-content: flex-end; color: var(--m-sub-ink); font-size: var(--m-fs-xs); }
+
 .m-airow { margin-top: 10px; }
 .m-airow b { display: block; font-size: var(--m-fs-sm); margin-bottom: 4px; }
 .m-ailist { margin: 0; padding-left: 18px; font-size: var(--m-fs-sm); color: var(--m-sub); }
@@ -12588,7 +12612,7 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
      targetRoute() 会静默把请求回落到 #home —— 页面看着正常，其实根本没进去。 */
   var KNOWN = ['home', 'register', 'verify', 'profile', 'exercises', 'exercise',
     'settings', 'goals', 'plan', 'bag', 'workout', 'summary', 'history', 'session',
-    'growth', 'quick', 'explore', 'me', 'about'];
+    'growth', 'quick', 'explore', 'me', 'about', 'ai'];
 
   function targetRoute() {
     var r = parseHash();
@@ -12635,12 +12659,14 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
       if (!ctx.verified) { tab.hidden = true; tab.innerHTML = ''; return; }
       tab.hidden = false;
       var r = parseHash().route;
-      /* 四个核心入口（视觉要求 §4）：今日 / 计划 / 动作库 / 我的。
+      /* 五个核心入口（V2.7）：今日 / 计划 / 动作库 / AI练 / 我的。
+         AI 从「我的 → 更多」升为一级入口——它是核心功能之一，不该藏在折叠列表里。
          计划与我的各自覆盖一组子路由，用 tabGroup 归组后再判定高亮。 */
       var items = [
         { k: 'home', t: '今日' },
         { k: 'plan', t: '计划', group: ['plan', 'bag'] },
         { k: 'exercises', t: '动作库', group: ['exercises', 'exercise'] },
+        { k: 'ai', t: 'AI练', group: ['ai'] },
         /* 08 轮：「我的」= 列表页 #me，点进对应条目才展开；二级页仍归在这一组里高亮 */
         { k: 'me', t: '我的', group: ['me', 'profile', 'goals', 'growth', 'history', 'settings', 'explore', 'about'] }
       ];
@@ -12827,21 +12853,22 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
    * kind 会被 pageHome 用来挑选「唯一次要入口」，两处必须成对改。
    */
   function todayAction() {
+    /* V2.7 优先级（用户拍板的「先练后填」）：命中即停——
+       1 resume（live 会话）→ 2 paused（档案级暂停）→ 3 done（今日已完成）
+       → 4 start（今日 draft 背包有动作）→ 5 plan（今日计划项）→ 6 quick（自由训练）。
+       与 V2.6 的两处差别：
+       a) profile 态从主链删除——档案未完善不再把「开始训练 / 自由训练」顶下去，
+          它降级成相关态的次要文字链（见 homeSecondary）；
+       b) noplan 并入 quick——没排计划时主按钮就是「自由训练」，
+          「去排计划」降为次要链。生成计划不再是开练的前置条件。 */
     var live = store.all('m_sessions').filter(function (s) {
       return s.member_id === ctx.member_id && SES.isLive(s);
     }).sort(function (a, b) { return String(b.started_at).localeCompare(String(a.started_at)); })[0];
-    /* 09 轮：文案收敛到 4 类心智、按钮 2-6 字。
-       tip 就是首页那一句状态（页面直接拼成「你好，××，<tip>。」），
-       所以每句必须是能独立读通的短句，不再写括号补充说明。 */
     if (live) return { kind: 'resume', label: '继续训练', href: '#workout/' + live.session_id, tip: '上次训练还没结束' };
 
     var prof = store.find('m_profiles', ctx.member_id) || {};
     if (prof.pause_until && String(prof.pause_until) >= today()) {
       return { kind: 'paused', label: '查看计划', href: '#plan', tip: '训练暂停到 ' + prof.pause_until };
-    }
-
-    if (prof.onboarding_done !== 'Y') {
-      return { kind: 'profile', label: '完善档案', href: '#profile', tip: '还差一份训练档案' };
     }
 
     var doneToday = store.all('m_sessions').some(function (s) {
@@ -12852,14 +12879,13 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
       return { kind: 'done', label: '今日已完成', href: '#growth', tip: '今天已经练完了' };
     }
 
-    var hasWeekPlan = store.all('m_plans').some(function (p) {
-      return p.member_id === ctx.member_id && p.week_start === PLAN.mondayOf(today())
-        && p.status !== 'archived';
-    });
-    if (!hasWeekPlan) {
-      return { kind: 'noplan', label: '生成本周计划', href: '#plan', tip: '本周还没排计划' };
-    }
-
+    /* 关于 confirmed 背包（V2.7 决策一，按真实状态语义核对过）：
+       `m_bags.status` 枚举是 draft / confirmed / discarded，而 confirmed 的唯一写入点
+       是 SES.startFromBag——它必然先建会话再把背包置 confirmed（fxp-member-session.js:224）。
+       所以「confirmed 且尚未开始」在本域模型里不存在；confirmed 背包必然带着一个会话：
+       会话 in_progress/paused → 上面 resume 接住；completed → done 接住；
+       abandoned → 该背包已消耗，startFromBag 也会拒绝重开（already_confirmed），按「失效」排除，
+       落到下面 plan/quick 兜底。因此「开始训练」的可执行态就是 draft 背包。 */
     var bag = todayBag();
     if (bag) {
       var items = bagItems(bag.bag_id);
@@ -12875,15 +12901,25 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
   }
 
   /** 首页主 CTA 之外的「唯一次要入口」：一个状态最多给一个，不摆一排按钮（07 轮收敛）
-   *  09 轮补一条：次要链**不得与主按钮同目的地**。plan 态以前主次都指 #plan，等于同一个入口画了两次。 */
+   *  V2.7：次要链必须与主按钮**目的不同**（09 轮规则保留），并承担两件从主链降下来的事——
+   *  档案未完善时给「完善档案（可稍后）」，本周没排计划时给「去排计划」。 */
   function homeSecondary(act) {
+    var prof = store.find('m_profiles', ctx.member_id) || {};
+    var needProfile = prof.onboarding_done !== 'Y';
     switch (act.kind) {
-      case 'profile': return { label: '先去动作库', href: '#exercises' };
       case 'done':    return { label: '训练历史', href: '#history' };
-      case 'noplan':  return { label: '先自由训练', href: '#quick' };
-      case 'start':   return { label: '改计划', href: '#plan' };
-      case 'plan':    return { label: '自由训练', href: '#quick' };
-      case 'quick':   return { label: '去排计划', href: '#plan' };
+      case 'start':   return needProfile
+        ? { label: '完善档案（可稍后）', href: '#profile' }
+        : { label: '改计划', href: '#plan' };
+      case 'plan':    return needProfile
+        ? { label: '完善档案（可稍后）', href: '#profile' }
+        : { label: '自由训练', href: '#quick' };
+      case 'quick':   return needProfile
+        ? { label: '完善档案（可稍后）', href: '#profile' }
+        : (store.all('m_plans').some(function (p) {
+            return p.member_id === ctx.member_id && p.week_start === PLAN.mondayOf(today())
+              && p.status !== 'archived';
+          }) ? null : { label: '去排计划', href: '#plan' });
       default:        return null;   /* resume / paused 不给次要入口，别分散注意力 */
     }
   }
@@ -13145,6 +13181,40 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
     el.textContent = text;
   }
 
+  /**
+   * 今日动作摘要（V2.7 §6）：纯读，最多 3 行 + 「等 N 个动作」。
+   * 数据源：今日 draft 背包优先（那是马上要练的），背包为空才看今日计划项；
+   * 同一动作在背包和计划里可能同时出现（PLAN.addToBag 不做查重也不删计划项），
+   * 所以按 exercise_id 去重——摘要只描述「今天练什么」，不重复计数、不写任何表。
+   * 只在 start / plan 两态调用（done 不显示、quick 本来就没安排）。
+   */
+  function todayPreview() {
+    var bag = todayBag();
+    var src = bag ? bagItems(bag.bag_id) : [];
+    if (!src.length) src = todayPlanItems();
+    var seen = {}, rows = [];
+    src.forEach(function (it) {
+      var key = it.exercise_id || it.exercise_name_snapshot;
+      if (!key || seen[key]) return;
+      seen[key] = 1;
+      rows.push({ name: it.exercise_name_snapshot, sets: it.target_sets });
+    });
+    return rows;
+  }
+
+  /** 摘要 HTML：主按钮下方的只读清单，最多 3 行，多出的合成一句「等 N 个动作」。 */
+  function todayPreviewHtml(act) {
+    if (act.kind !== 'start' && act.kind !== 'plan') return '';
+    var rows = todayPreview();
+    if (!rows.length) return '';
+    var head = rows.slice(0, 3).map(function (r) {
+      return '<li><span>' + esc(r.name) + '</span>'
+        + (r.sets ? '<em><b>' + esc(r.sets) + '</b> 组</em>' : '') + '</li>';
+    }).join('');
+    var rest = rows.length > 3 ? '<li class="m-tsum-more">等 ' + (rows.length - 3) + ' 个动作</li>' : '';
+    return '<ul class="m-tsum" aria-label="今日动作摘要">' + head + rest + '</ul>';
+  }
+
   function pageHome() {
     /* 08 轮起首页是唯一工作台：一行状态 + 一个主按钮 + 一个文字链次要入口。
        09 轮再删一层：「三步上手」新手条整条移除——它和 profile 态说的是同一件事，
@@ -13167,7 +13237,9 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
       + '<p class="m-p">你好，<b>' + esc(p.name || ctx.member_id) + '</b>，'
       + esc(act.tip || '') + '。</p>'
       + (act.kind === 'quick'
-        ? '<button class="m-btn m-btn-primary m-btn-lg" id="btnQuickStart">' + act.label + '</button>'
+        /* V2.7 决策二：首页「自由训练」只导航到 #quick，由那页的「直接开始」建会话——
+           建会话是写操作，绝不由首页主按钮代劳（重复渲染 / 误触都不会意外开练）。 */
+        ? '<a class="m-btn m-btn-primary m-btn-lg" href="' + act.href + '">' + act.label + '</a>'
         : (act.kind === 'done'
           /* 今日已完成：完成态走橙红浅底深字（练完=橙红），不用警报样式也不用主紫 */
           ? '<a class="m-btn m-btn-done m-btn-lg" href="' + act.href + '">' + act.label + '</a>'
@@ -13176,6 +13248,8 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
           /* 次要入口是文字链，不是第二个大按钮——08 轮规范 */
           ? '<p class="m-hint">或者：<a href="' + sec.href + '">' + esc(sec.label) + '</a></p>'
           : '')
+      /* V2.7：今日动作摘要，只读、最多 3 行，只在有安排时出现（start / plan 态） */
+      + todayPreviewHtml(act)
       /* 本周进度是纯文本，不再带第二个链接（「任务与挑战在成长中心」挪去 #me / #growth） */
       + (p.onboarding_done === 'Y'
         ? '<p class="m-hint">本周已完成 ' + w.completedCount + ' / ' + w.frequencyGoal + ' 次。</p>' : '')
@@ -13196,8 +13270,8 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
   }
 
   function bindHome() {
-    var q = $('btnQuickStart');
-    if (q) q.addEventListener('click', function () { startQuickSession([]); });
+    /* V2.7：首页主按钮全部是 <a> 链接（quick 态也只跳 #quick），
+       首页不再有任何直接建会话的按钮——这里无事可做，保留空绑定点以便将来扩展。 */
   }
 
   /* ---------------------------------------------------------------- 页面：自由训练 #quick */
@@ -13346,7 +13420,6 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
   function pageMe() {
     var p = store.find('m_profiles', ctx.member_id) || {};
     var ov = XP.overview(store, ctx.member_id);
-    var ai = aiCoachHref();
     var en = IDN.enrollState(store, ctx.member_id, IDN.readCoachMembers(localStorage).members);
     return ''
       /* 头：只放身份 + 一行数字，不做仪表盘 */
@@ -13371,19 +13444,15 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
 
       /* 09 轮：「发现」与「数据」默认折叠成一条。
          这两组各只有 2 行，却占了首屏一半高度，把档案 / 历史 / 成长挤了下去。
-         收起态只留一行摘要，点开才是完整入口——功能一个没少，只是不抢戏。 */
+         收起态只留一行摘要，点开才是完整入口——功能一个没少，只是不抢戏。
+         V2.7：AI 行从这里移除——AI 已升为底栏一级入口（#ai），
+         同一个入口出现两处等于让人猜哪个是真的。 */
       + '<section class="m-card">'
       + '<details class="m-fold">'
-      + '<summary class="m-fold-s"><b>更多</b><em>探索 · AI · 设置 · 关于</em>'
+      + '<summary class="m-fold-s"><b>更多</b><em>探索 · 设置 · 关于</em>'
       + '<span class="m-fold-x" aria-hidden="true"></span></summary>'
       + '<div class="m-cells">'
       + meRow({ label: '探索地图', href: '#explore' })
-      + (ai
-        ? meRow({
-          label: 'AI 姿势辅助', href: ai, blank: true, title: aiCoachCapLine(),
-          desc: '摄像头实时看姿态 · 须在 https 或 localhost 下打开'
-        })
-        : '')
       + meRow({ label: '设置 · 导出 / 导入', href: '#settings' })
       + meRow({ label: '关于数据', href: '#about' })
       + '</div>'
@@ -13403,6 +13472,78 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
       + '<li>本页没有登录与权限校验；与教练端的关联只是只读判定，不会读写教练端数据。</li>'
       + '</ul>'
       + '<div class="m-btn-row"><a class="m-btn m-btn-ghost" href="#settings">去导出 / 导入</a></div>'
+      + '</section>';
+  }
+
+  /* ---------------------------------------------------------------- 页面：AI 姿势辅助 #ai（V2.7）
+   *
+   * AI 升为底栏一级入口后给它一个落地页。职责只有三件：
+   *   1) 讲清能力边界（能做什么 / 明确不做什么）——这段说明跟着 AI 端配置走，不在这里发挥；
+   *   2) 动态列出 A / B 级可监测动作（读 FXP.aicConfig，配置改了这里跟着变，不维护第二份清单）；
+   *   3) 一个跳去既有 AI 教练页的主按钮（aiCoachHref() 复用，不在会员端重做摄像头）。
+   * 本页是纯展示：不写 m_* 任何表，不碰 fxp-ai-coach 的存储，不打通两端业务数据。
+   */
+
+  /** A/B 级可监测动作列表（纯读）。配置缺失时返回 null，让页面显示真实的降级提示。 */
+  function aiMonitorList() {
+    var cfg = aiCfg();
+    if (!cfg || !cfg.RULE_LIST || !cfg.RULE_LIST.length
+      || typeof cfg.getMonitor !== 'function' || !cfg.RULES) return null;
+    var out = [];
+    cfg.RULE_LIST.forEach(function (t) {
+      var rule = cfg.RULES[t];
+      var lv = (cfg.getMonitor(t) || {}).level;
+      if (lv !== 'A' && lv !== 'B') return;   /* 只列 A/B：C 级不在「可监测」之列，不凑数 */
+      out.push({ name: (rule && rule.exerciseLabel) || t, level: lv });
+    });
+    return out;
+  }
+
+  function pageAi() {
+    var cfg = aiCfg();
+    var list = aiMonitorList();
+    var href = aiCoachHref();
+    return ''
+      /* 1. 能力边界：能做什么、明确不做什么。这段不许因为页面空间被删——
+            它是 AI 功能的诚实声明，也是 D-组测试的断言来源。 */
+      + '<section class="m-card">'
+      + '<div class="m-card-h"><h2>AI 姿势辅助</h2><span class="m-pill">训练辅助</span></div>'
+      + '<p class="m-p">' + esc(aiCoachCapLine()) + '</p>'
+      + '<ul class="m-list">'
+      + '<li>只依据<b>人体关键点</b>做姿势辅助；<b>不识别</b>重量、杠铃/哑铃、器械与配重，重量与次数请手动记录。</li>'
+      + '<li>不承诺识别伤病，<b>不做医疗诊断</b>；结果只用于训练反馈参考。</li>'
+      + '<li>摄像头需要<b>安全上下文</b>：在 https 或 localhost 下打开才能调用；'
+      + '用 file:// 直接打开时，浏览器可能拿不到视频流。</li>'
+      + '<li>实际支持范围以本页列表为准——没列出的动作不做监测声明，按手动记录用。</li>'
+      + '</ul>'
+      + '</section>'
+
+      /* 2. 可监测动作（动态）：A = 可完整监测，B = 有限监测。数据全部来自 AI 端配置。 */
+      + '<section class="m-card">'
+      + '<div class="m-card-h"><h2>可监测动作</h2>'
+      + (list ? '<span class="m-pill">' + list.length + ' 个</span>' : '') + '</div>'
+      + (list === null
+        ? '<p class="m-hint">本页没有加载到 AI 能力配置，无法列出动作清单；'
+          + '以手动记录为准，具体支持范围以 AI 教练页实际提示为准。</p>'
+        : (list.length
+          ? '<div class="m-monlist">' + list.map(function (x) {
+              return '<div class="m-monrow"><span>' + esc(x.name) + '</span>'
+                + '<span class="m-aibadge m-aibadge-' + x.level + '">'
+                + esc((cfg.LEVEL_TEXT && cfg.LEVEL_TEXT[x.level]) || x.level) + '</span></div>';
+            }).join('') + '</div>'
+          : '<p class="m-hint">当前配置下暂无可监测动作，所有动作按手动记录使用。</p>'))
+      + '</section>'
+
+      /* 3. 入口：主按钮打开既有 AI 教练页（新窗口，避免跳走后训练状态丢失）。
+            单文件离线版没有 AI 教练页文件——如实说明，不做点了 404 的假按钮。 */
+      + '<section class="m-card">'
+      + (href
+        ? '<div class="m-btn-row"><a class="m-btn m-btn-primary" href="' + esc(href)
+          + '" target="_blank" rel="noopener">打开 AI 教练页</a></div>'
+        : '<p class="m-hint">单文件离线版没有包含 AI 教练页。'
+          + '需要摄像头辅助请使用完整版（线上版或 dist 包）。</p>')
+      + '<p class="m-hint">也可以先去 <a href="#exercises">动作库</a>'
+      + '看看带「可监测 / 有限监测」标记的动作。</p>'
       + '</section>';
   }
 
@@ -15769,6 +15910,7 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
     else if (r.route === 'profile') html = pageProfile();
     else if (r.route === 'me') html = pageMe();
     else if (r.route === 'about') html = pageAbout();
+    else if (r.route === 'ai') html = pageAi();
     else if (r.route === 'exercises') html = pageExercises(r);
     else if (r.route === 'exercise') html = pageExercise(r);
     else if (r.route === 'settings') html = pageSettings();
