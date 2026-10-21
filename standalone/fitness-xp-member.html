@@ -878,6 +878,39 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
 .m-planitem-b .m-btn[data-pi-bag] { margin-left: 6px; border-left: 1px solid var(--m-border); border-radius: 0; }
 .m-planitem-b .m-btn[data-pi-bag]:hover { border-left-color: var(--m-border); }
 
+/* ---------- 按日选动作（空白计划自主编排） ----------
+   面板默认 hidden，点「+ 加动作」才填充展开：68 个动作 × 7 天全渲染会把计划页撑爆。
+   样式沿用卡片体系：浅底容器 + 白底行，选中行即写入，不新增第三套视觉语言。 */
+.m-expick {
+  background: var(--m-bg); border: 1px solid var(--m-border);
+  border-radius: var(--m-radius-sm); padding: 10px; margin-top: 6px;
+}
+.m-expick[hidden] { display: none; }
+.m-expick-h { font-size: var(--m-fs-sm); font-weight: 600; color: var(--m-text); margin-bottom: 8px; }
+.m-expick-q {
+  width: 100%; font: inherit; font-size: var(--m-fs-sm);
+  padding: 9px 12px; min-height: 40px;
+  border: 1px solid var(--m-border); border-radius: var(--m-radius-sm);
+  background: var(--m-card); color: var(--m-text);
+}
+.m-expick-q:focus { outline: none; border-color: var(--m-purple); }
+.m-expick-list { display: grid; gap: 6px; margin-top: 8px; }
+.m-expick-row {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+  width: 100%; text-align: left; cursor: pointer;
+  background: var(--m-card); border: 1px solid var(--m-border);
+  border-radius: var(--m-radius-sm); padding: 10px 12px;
+  font: inherit; color: var(--m-text);
+}
+.m-expick-row:hover { border-color: var(--m-purple); box-shadow: var(--m-shadow); }
+.m-expick-row b { font-size: var(--m-fs-sm); font-weight: 600; }
+.m-expick-row em {
+  font-style: normal; font-size: var(--m-fs-xs); color: var(--m-sub-ink);
+  flex: none; white-space: nowrap;
+}
+/* 计划页按钮下方的说明：自动生成依赖档案这件事必须写在按钮旁边 */
+.m-plan-note { margin-top: 8px; }
+
 /* ---------- 今日背包 ---------- */
 .m-bagitem {
   background: #fff; border: 1px solid var(--m-border);
@@ -6486,6 +6519,80 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
     return { ok: true, plan_id: planId, plan: res.row, days: g.days, notes: g.notes, inserted: inserted };
   }
 
+  /** 该会员某周是否存在**会员自己的**计划（source='member'），用于空白计划的不覆盖预检 */
+  function findMemberPlan(store, memberId, weekStart) {
+    var hit = null;
+    store.findBy('m_plans', function (r) {
+      return r.member_id === memberId && r.week_start === weekStart && r.source === 'member';
+    }).forEach(function (r) { if (!hit) hit = r; });
+    return hit;
+  }
+
+  /**
+   * createEmptyWeekPlan(store, memberId, opt) —— 建一份**当周空白会员计划**（0 动作），供会员自主编排。
+   *
+   * 与 createWeekPlan 的分工：
+   *   createWeekPlan     = 按档案 + 动作库**自动生成**（generatePlan 强依赖 m_profiles）
+   *   createEmptyWeekPlan = 只建容器，**不调 generatePlan、不读 m_profiles**（档案不准/不想填也能开工）
+   *
+   * 两条硬行为：
+   *   1. 该周已有 source='member' 的计划 → 返回 already_exists，**绝不覆盖**（也不追加第二份）；
+   *   2. 该周已有 coach_confirmed='Y' 的计划 → 返回 coach_week_exists
+   *      （与 createWeekPlan / copyPlan 同一口径；教练安排只读，需调整请联系教练）。
+   *
+   * opt.weekStart / opt.week_start  周起始日（缺省本周一，内部归一到周一）
+   * opt.weekTargetCount             本周目标次数（1-7，缺省 3）
+   * opt.note                        备注
+   *
+   * @returns {{ok:true, plan_id, plan, week_start, items:0} | {ok:false, reason, message}}
+   */
+  function createEmptyWeekPlan(store, memberId, opt) {
+    opt = opt || {};
+    if (!memberId) return fail('no_actor', '未指定会员，拒绝写计划');
+    var week = normWeekStart(opt.weekStart || opt.week_start);
+
+    var dup = findMemberPlan(store, memberId, week);
+    if (dup) {
+      return {
+        ok: false, reason: 'already_exists', plan_id: dup.plan_id,
+        message: '这一周你已经有自己的计划了（' + dup.plan_id + '），没有覆盖它。'
+          + '想重排请先删除原计划，或直接在原计划里改。'
+      };
+    }
+    if (findCoachConfirmed(store, memberId, week)) {
+      return fail('coach_week_exists', '该周已有教练安排，不能新建空白计划');
+    }
+
+    var now = opt.now || nowStr();
+    var planId = store.nextId('m_plans');
+    if (!planId) return fail('id_exhausted', '计划 ID 已用尽');
+
+    /* week_target_count 是必填且限定 1-7 的整数列（schema: I(...,1,[1,7])），
+       空白计划也得给一个合法值；不给会从 insert 层被拒，页面只会看到一句笼统的失败。 */
+    var target = clampInt(opt.weekTargetCount !== undefined ? opt.weekTargetCount : opt.week_target_count,
+      DEFAULT_DAYS, 1, 7);
+
+    var res = store.insert('m_plans', {
+      plan_id: planId,
+      member_id: memberId,
+      week_start: week,
+      week_target_count: target,
+      source: 'member',
+      coach_confirmed: 'N',
+      coach_confirmed_at: '',
+      coach_confirmed_by: '',
+      member_edited: 'N',
+      status: 'draft',
+      note: opt.note ? String(opt.note).slice(0, 300) : '',
+      created_at: now,
+      updated_at: ''
+    }, { actor: memberId });
+    if (!res.ok) return storeFail(res, 'insert_failed');
+
+    /* items 为空：动作一律由会员后续用 addPlanItem 自行添加（本函数不碰动作库） */
+    return { ok: true, plan_id: planId, plan: res.row, week_start: week, items: 0 };
+  }
+
   /**
    * publishPlan(store, memberId, planId, opt) —— draft → published。
    * 已 published 视为幂等成功（already:true）；archived 拒绝；coach_confirmed='Y' 拒绝。
@@ -7557,6 +7664,7 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
     /* 计划侧 */
     generatePlan: generatePlan,
     createWeekPlan: createWeekPlan,
+    createEmptyWeekPlan: createEmptyWeekPlan,
     publishPlan: publishPlan,
     getWeekPlan: getWeekPlan,
     updatePlanMeta: updatePlanMeta,
@@ -14546,13 +14654,22 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
       + esc(prof.session_minutes || '—') + ' 分钟</p>'
       + '<div class="m-btn-row">'
       + '<button class="m-btn m-btn-primary" id="btnGenPlan">按我的情况生成计划</button>'
+      + '<button class="m-btn" id="btnEmptyPlan">创建空白计划</button>'
       + '<button class="m-btn m-btn-ghost" id="btnCopyPlan">复制上一周</button>'
-      + '</div><div class="m-hint" id="planMsg"></div>'
+      + '</div>'
+      /* 自动生成强依赖档案，必须把这件事写在按钮下面：否则档案填得不准的会员
+         只会看到「生成出来不对」，不知道是该改档案还是改用空白计划。 */
+      + '<p class="m-hint m-plan-note">「按我的情况生成」用的是你档案里的每周可练天数、每次时长、'
+      + '可用器械、身体限制；档案填得不准，排出来的就不准。可以<a href="#profile">改档案</a>，'
+      + '或创建空白计划自己排一周。</p>'
+      + '<div class="m-hint" id="planMsg"></div>'
       + '</section>';
 
     if (!entries.length) {
       html += '<section class="m-card"><p class="m-p">这一周还没有计划。</p>'
-        + '<p class="m-hint">生成计划只会用到你在档案里填过的：每周可练天数、每次时长、可用器械、身体限制。</p></section>';
+        + '<p class="m-hint">生成计划只会用到你在档案里填过的：每周可练天数、每次时长、可用器械、身体限制。</p>'
+        + '<p class="m-hint">也可以创建空白计划自己排：先建一个空的周计划，再在任意一天点「+ 加动作」，'
+        + '从动作库里挑动作加进去。</p></section>';
     }
 
     /* 调整建议放在周视图下面：会员关心的是「这周该怎么排」，这里离数据最近 */
@@ -14571,6 +14688,9 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
           ? '<p class="m-hint">这是教练已确认的安排，会员端不能修改。如需调整请联系教练。'
             + '你可以另建一份自己的安排，两者并存、不会互相覆盖。</p>'
           : (p.member_edited === 'Y' ? '<p class="m-hint">你改动过这份教练建议，系统已标记；来源仍记为教练安排。</p>' : ''))
+        /* 空白计划刚建好时页面上有 7 个「休息」，不给一句话会员不知道下一步干什么 */
+        + (!locked && !items.length
+          ? '<p class="m-hint">这份计划还是空的：在下面任意一天点「+ 加动作」，从动作库里挑动作加进去。</p>' : '')
         + '<div class="m-form"><label class="m-fld"><span>本周目标次数</span>'
         + '<input type="number" min="1" max="7" value="' + esc(p.week_target_count)
         + '" data-plan-meta="' + esc(p.plan_id) + '"' + (locked ? ' disabled' : '') + '></label></div>';
@@ -14605,8 +14725,11 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
               + '</div>';
           }).join('');
         }
+        /* 选动作的面板容器：默认 hidden，点「+ 加动作」时才由 openExPicker 填充并展开。
+           不在服务端渲染 68 条 × 7 天，避免空白计划一页塞进几百个节点。 */
         html += (locked ? '' : '<div class="m-btn-row"><button class="m-btn m-btn-xs" data-pi-add="'
-            + esc(p.plan_id) + '|' + d + '">+ 加动作</button></div>')
+            + esc(p.plan_id) + '|' + d + '">+ 加动作</button></div>'
+            + '<div class="m-expick" id="expick-' + esc(p.plan_id) + '-' + d + '" hidden></div>')
           + '</div>';
       }
       html += (locked ? '' : '<div class="m-btn-row">'
@@ -14629,6 +14752,64 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
   }
   function dayName(d) { return ['一', '二', '三', '四', '五', '六', '日'][d - 1] || d; }
 
+  /**
+   * openExPicker(planId, day, msg) —— 按日加动作的内联选择器。
+   *
+   * 为什么不再用 prompt 让会员手输动作编号：动作 ID（EX0001）在页面上根本没露出来过，
+   * 会员要加动作得先跑去动作库抄编号 —— 空白计划场景下这条路径等于「能加但加不了」。
+   * 这里直接列动作库（带搜索），选中即调 PLAN.addPlanItem，规则仍全在领域层。
+   */
+  function openExPicker(planId, day, msg) {
+    var box = $('expick-' + planId + '-' + day);
+    if (!box) return;
+    if (!box.hidden) { box.hidden = true; return; }          /* 再点一次收起 */
+
+    var all = store.all('m_exercises').filter(function (e) { return e.deprecated !== 'Y'; });
+    box.innerHTML = '<div class="m-expick-h">给周' + dayName(day) + '选一个动作</div>'
+      + '<input class="m-expick-q" type="search" placeholder="搜动作名或肌群，如 深蹲、胸">'
+      + '<div class="m-expick-list"></div>'
+      + '<div class="m-btn-row"><button class="m-btn m-btn-xs" data-expick-cancel="1">取消</button></div>';
+
+    var q = box.querySelector('.m-expick-q');
+    var list = box.querySelector('.m-expick-list');
+
+    function draw(kw) {
+      var k = String(kw || '').trim().toLowerCase();
+      var hit = all.filter(function (e) {
+        if (!k) return true;
+        return (String(e.name || '') + ' ' + String(e.primary_muscles || '') + ' '
+          + String(e.movement_pattern || '')).toLowerCase().indexOf(k) >= 0;
+      });
+      if (!hit.length) { list.innerHTML = '<p class="m-hint">没有匹配的动作，换个词试试。</p>'; return; }
+      var shown = k ? hit : hit.slice(0, 20);
+      list.innerHTML = shown.map(function (e) {
+        return '<button class="m-expick-row" data-pick-ex="'
+          + esc(e.exercise_id) + '|' + esc(planId) + '|' + day + '">'
+          + '<b>' + esc(e.name) + '</b><em>' + esc(e.primary_muscles || '') + ' · '
+          + esc(e.difficulty || '') + '</em></button>';
+      }).join('') + (!k && hit.length > 20 ? '<p class="m-hint">只显示前 20 个，输入关键词可继续筛。</p>' : '');
+
+      list.querySelectorAll('[data-pick-ex]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var p = btn.getAttribute('data-pick-ex').split('|');
+          var r = PLAN.addPlanItem(store, ctx.member_id, p[1], { day_of_week: +p[2], exercise_id: p[0] });
+          if (r.ok === false) {
+            if (msg) { msg.className = 'm-hint m-err'; msg.textContent = r.message || r.reason; }
+            toast(r.message || r.reason, 'err', 5000);
+            return;
+          }
+          run(r, '已加入周' + dayName(+p[2])); render();
+        });
+      });
+    }
+
+    q.addEventListener('input', function () { draw(q.value); });
+    box.querySelector('[data-expick-cancel]').addEventListener('click', function () { box.hidden = true; });
+    box.hidden = false;
+    draw('');
+    q.focus();
+  }
+
   function bindPlan() {
     var week = parseHash().q.week || PLAN.mondayOf(today());
     var msg = $('planMsg');
@@ -14643,11 +14824,42 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
           toast(r.message || r.reason, 'err', 5000);
           return false;
         }
-        var notes = (r.snapshot && r.snapshot.notes) || [];
-        if (msg) { msg.className = 'm-hint m-ok'; msg.textContent = '已生成草稿' + (notes.length ? '：' + notes.join('；') : ''); }
+        /* createWeekPlan 把 notes 返回在顶层（不是 snapshot 下）——写错路径会让
+           「为什么这么排」的解释一句都出不来，会员只看到一句干巴巴的「已生成草稿」。 */
+        var notes = r.notes || (r.snapshot && r.snapshot.notes) || [];
         run(r, '已按你的情况生成计划'); render();
+        /* 提示必须写在 render() 之后：render 会重建整页，之前拿到的 #planMsg 引用
+           已经是 detached 节点，写进去的内容会被连同旧节点一起丢掉——
+           结果是成功路径永远看不到「为什么这么排」的说明（失败路径不重渲染反而看得到）。 */
+        var msg2 = $('planMsg');
+        if (msg2) {
+          msg2.className = 'm-hint m-ok';
+          msg2.textContent = '已生成草稿' + (notes.length ? '：' + notes.join('；') : '');
+        }
         return true;
       }, '计划已生成');
+    });
+
+    /* 空白计划：不读档案、不生成动作，只建一个空容器，动作由会员自己按日添加。
+       同周已有自己的计划时领域层返回 already_exists，这里原样把原因显示出来（不覆盖、不静默）。 */
+    var ep = $('btnEmptyPlan');
+    if (ep) ep.addEventListener('click', function () {
+      runBusy(ep, '正在建计划…', function () {
+        var r = PLAN.createEmptyWeekPlan(store, ctx.member_id, { weekStart: week });
+        if (r.ok === false) {
+          if (msg) { msg.className = 'm-hint m-err'; msg.textContent = r.message || r.reason; }
+          toast(r.message || r.reason, 'err', 5000);
+          return false;
+        }
+        run(r, '空白计划已创建'); render();
+        /* 同上：render() 之后再写提示，否则内容随旧节点一起被丢掉 */
+        var msgE = $('planMsg');
+        if (msgE) {
+          msgE.className = 'm-hint m-ok';
+          msgE.textContent = '空白计划已建好：在下面任意一天点「+ 加动作」开始排。';
+        }
+        return true;
+      }, '空白计划已创建');
     });
 
     var cp = $('btnCopyPlan');
@@ -14706,11 +14918,7 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
     document.querySelectorAll('[data-pi-add]').forEach(function (b) {
       b.addEventListener('click', function () {
         var parts = b.getAttribute('data-pi-add').split('|');
-        var exId = W.prompt('输入要加入的动作编号（可在动作库里查看，如 EX0001）：', 'EX0001');
-        if (!exId) return;
-        var r = PLAN.addPlanItem(store, ctx.member_id, parts[0], { day_of_week: +parts[1], exercise_id: exId });
-        if (r.ok === false) { toast(r.message || r.reason, 'err'); return; }
-        run(r, '已加入计划'); render();
+        openExPicker(parts[0], +parts[1], msg);
       });
     });
     document.querySelectorAll('[data-plan-pub]').forEach(function (b) {

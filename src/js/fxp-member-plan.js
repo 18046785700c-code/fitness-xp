@@ -684,6 +684,80 @@
     return { ok: true, plan_id: planId, plan: res.row, days: g.days, notes: g.notes, inserted: inserted };
   }
 
+  /** 该会员某周是否存在**会员自己的**计划（source='member'），用于空白计划的不覆盖预检 */
+  function findMemberPlan(store, memberId, weekStart) {
+    var hit = null;
+    store.findBy('m_plans', function (r) {
+      return r.member_id === memberId && r.week_start === weekStart && r.source === 'member';
+    }).forEach(function (r) { if (!hit) hit = r; });
+    return hit;
+  }
+
+  /**
+   * createEmptyWeekPlan(store, memberId, opt) —— 建一份**当周空白会员计划**（0 动作），供会员自主编排。
+   *
+   * 与 createWeekPlan 的分工：
+   *   createWeekPlan     = 按档案 + 动作库**自动生成**（generatePlan 强依赖 m_profiles）
+   *   createEmptyWeekPlan = 只建容器，**不调 generatePlan、不读 m_profiles**（档案不准/不想填也能开工）
+   *
+   * 两条硬行为：
+   *   1. 该周已有 source='member' 的计划 → 返回 already_exists，**绝不覆盖**（也不追加第二份）；
+   *   2. 该周已有 coach_confirmed='Y' 的计划 → 返回 coach_week_exists
+   *      （与 createWeekPlan / copyPlan 同一口径；教练安排只读，需调整请联系教练）。
+   *
+   * opt.weekStart / opt.week_start  周起始日（缺省本周一，内部归一到周一）
+   * opt.weekTargetCount             本周目标次数（1-7，缺省 3）
+   * opt.note                        备注
+   *
+   * @returns {{ok:true, plan_id, plan, week_start, items:0} | {ok:false, reason, message}}
+   */
+  function createEmptyWeekPlan(store, memberId, opt) {
+    opt = opt || {};
+    if (!memberId) return fail('no_actor', '未指定会员，拒绝写计划');
+    var week = normWeekStart(opt.weekStart || opt.week_start);
+
+    var dup = findMemberPlan(store, memberId, week);
+    if (dup) {
+      return {
+        ok: false, reason: 'already_exists', plan_id: dup.plan_id,
+        message: '这一周你已经有自己的计划了（' + dup.plan_id + '），没有覆盖它。'
+          + '想重排请先删除原计划，或直接在原计划里改。'
+      };
+    }
+    if (findCoachConfirmed(store, memberId, week)) {
+      return fail('coach_week_exists', '该周已有教练安排，不能新建空白计划');
+    }
+
+    var now = opt.now || nowStr();
+    var planId = store.nextId('m_plans');
+    if (!planId) return fail('id_exhausted', '计划 ID 已用尽');
+
+    /* week_target_count 是必填且限定 1-7 的整数列（schema: I(...,1,[1,7])），
+       空白计划也得给一个合法值；不给会从 insert 层被拒，页面只会看到一句笼统的失败。 */
+    var target = clampInt(opt.weekTargetCount !== undefined ? opt.weekTargetCount : opt.week_target_count,
+      DEFAULT_DAYS, 1, 7);
+
+    var res = store.insert('m_plans', {
+      plan_id: planId,
+      member_id: memberId,
+      week_start: week,
+      week_target_count: target,
+      source: 'member',
+      coach_confirmed: 'N',
+      coach_confirmed_at: '',
+      coach_confirmed_by: '',
+      member_edited: 'N',
+      status: 'draft',
+      note: opt.note ? String(opt.note).slice(0, 300) : '',
+      created_at: now,
+      updated_at: ''
+    }, { actor: memberId });
+    if (!res.ok) return storeFail(res, 'insert_failed');
+
+    /* items 为空：动作一律由会员后续用 addPlanItem 自行添加（本函数不碰动作库） */
+    return { ok: true, plan_id: planId, plan: res.row, week_start: week, items: 0 };
+  }
+
   /**
    * publishPlan(store, memberId, planId, opt) —— draft → published。
    * 已 published 视为幂等成功（already:true）；archived 拒绝；coach_confirmed='Y' 拒绝。
@@ -1755,6 +1829,7 @@
     /* 计划侧 */
     generatePlan: generatePlan,
     createWeekPlan: createWeekPlan,
+    createEmptyWeekPlan: createEmptyWeekPlan,
     publishPlan: publishPlan,
     getWeekPlan: getWeekPlan,
     updatePlanMeta: updatePlanMeta,

@@ -858,6 +858,39 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
 .m-planitem-b .m-btn[data-pi-bag] { margin-left: 6px; border-left: 1px solid var(--m-border); border-radius: 0; }
 .m-planitem-b .m-btn[data-pi-bag]:hover { border-left-color: var(--m-border); }
 
+/* ---------- 按日选动作（空白计划自主编排） ----------
+   面板默认 hidden，点「+ 加动作」才填充展开：68 个动作 × 7 天全渲染会把计划页撑爆。
+   样式沿用卡片体系：浅底容器 + 白底行，选中行即写入，不新增第三套视觉语言。 */
+.m-expick {
+  background: var(--m-bg); border: 1px solid var(--m-border);
+  border-radius: var(--m-radius-sm); padding: 10px; margin-top: 6px;
+}
+.m-expick[hidden] { display: none; }
+.m-expick-h { font-size: var(--m-fs-sm); font-weight: 600; color: var(--m-text); margin-bottom: 8px; }
+.m-expick-q {
+  width: 100%; font: inherit; font-size: var(--m-fs-sm);
+  padding: 9px 12px; min-height: 40px;
+  border: 1px solid var(--m-border); border-radius: var(--m-radius-sm);
+  background: var(--m-card); color: var(--m-text);
+}
+.m-expick-q:focus { outline: none; border-color: var(--m-purple); }
+.m-expick-list { display: grid; gap: 6px; margin-top: 8px; }
+.m-expick-row {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+  width: 100%; text-align: left; cursor: pointer;
+  background: var(--m-card); border: 1px solid var(--m-border);
+  border-radius: var(--m-radius-sm); padding: 10px 12px;
+  font: inherit; color: var(--m-text);
+}
+.m-expick-row:hover { border-color: var(--m-purple); box-shadow: var(--m-shadow); }
+.m-expick-row b { font-size: var(--m-fs-sm); font-weight: 600; }
+.m-expick-row em {
+  font-style: normal; font-size: var(--m-fs-xs); color: var(--m-sub-ink);
+  flex: none; white-space: nowrap;
+}
+/* 计划页按钮下方的说明：自动生成依赖档案这件事必须写在按钮旁边 */
+.m-plan-note { margin-top: 8px; }
+
 /* ---------- 今日背包 ---------- */
 .m-bagitem {
   background: #fff; border: 1px solid var(--m-border);
