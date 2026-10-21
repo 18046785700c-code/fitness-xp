@@ -1207,19 +1207,31 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
 }
 .m-monrow:last-child { border-bottom: none; }
 
-/* ---------- V2.7 · 首页今日动作摘要（只读、最多 3 行 + 「等 N 个动作」） ---------- */
+/* ---------- 14 轮 · 首页今日动作清单（全量 + 卡片内滚动，取代「最多 3 行」） ---------- */
 .m-tsum {
-  list-style: none; margin: 12px 0 0; padding: 10px 12px 0;
-  border-top: 1px solid var(--m-border);
+  list-style: none; margin: 12px 0 0; padding: 6px 12px;
+  /* 必须显式白底：hero 卡是渐变紫区，透明容器会让行文字落进紫底、对比度掉到 4.25:1
+     （09 轮踩过同一个坑）。规则照旧——卡片默认白底，颜色只走顶条 / 小标签 / 进度。 */
+  background: var(--m-card);
+  border: 1px solid var(--m-border);
+  border-radius: var(--m-radius-sm);
+  /* 全量渲染但要防整页无限拉长：约 45vh ≈ 13 行，超了在卡片内滚 */
+  max-height: 45vh; overflow-y: auto; overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 .m-tsum li {
   display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
-  padding: 4px 0; font-size: var(--m-fs-sm); color: var(--m-ink);
+  padding: 7px 0; font-size: var(--m-fs-sm); color: var(--m-ink);
   overflow-wrap: anywhere;
+  border-bottom: 1px solid var(--m-border);
 }
+.m-tsum li:last-child { border-bottom: none; }
 .m-tsum li em { font-style: normal; flex: none; color: var(--m-sub-ink); font-size: var(--m-fs-xs); }
-.m-tsum li em b { font-size: var(--m-fs-sm); }
-.m-tsum .m-tsum-more { justify-content: flex-end; color: var(--m-sub-ink); font-size: var(--m-fs-xs); }
+/* 完成态：降对比度、不铺全量，让「今日已完成」按钮成为唯一焦点 */
+.m-tsum-done li { border-bottom: none; padding: 4px 0; }
+.m-tsum-done, .m-tsum-done li span { color: var(--m-sub-ink); }
+/* 进行中已记组数：弱文本一行，不占按钮位（纯读） */
+.m-tsum-note { margin: 10px 0 -6px; font-size: var(--m-fs-xs); color: var(--m-sub-ink); }
 
 .m-airow { margin-top: 10px; }
 .m-airow b { display: block; font-size: var(--m-fs-sm); margin-bottom: 4px; }

@@ -11694,10 +11694,14 @@
           它降级成相关态的次要文字链（见 homeSecondary）；
        b) noplan 并入 quick——没排计划时主按钮就是「自由训练」，
           「去排计划」降为次要链。生成计划不再是开练的前置条件。 */
-    var live = store.all('m_sessions').filter(function (s) {
-      return s.member_id === ctx.member_id && SES.isLive(s);
-    }).sort(function (a, b) { return String(b.started_at).localeCompare(String(a.started_at)); })[0];
-    if (live) return { kind: 'resume', label: '继续训练', href: '#workout/' + live.session_id, tip: '上次训练还没结束' };
+    var live = liveSession();
+    /* 14 轮：resume 额外带 session_id，供首页只读显示「已记 N 组」（决策 D，纯读不写库） */
+    if (live) {
+      return {
+        kind: 'resume', label: '继续训练', href: '#workout/' + live.session_id,
+        sessionId: live.session_id, tip: '上次训练还没结束'
+      };
+    }
 
     var prof = store.find('m_profiles', ctx.member_id) || {};
     if (prof.pause_until && String(prof.pause_until) >= today()) {
@@ -11820,6 +11824,13 @@
 
   /** JS 的 getDay()（0=周日）→ m_plan_items.day_of_week（1=周一） */
   function jsDayToPlanDay(jsDay) { return jsDay === 0 ? 7 : jsDay; }
+
+  /** 当前未结束的会话（in_progress / paused），最近开始的那条。今日态判定与进度读数共用。 */
+  function liveSession() {
+    return store.all('m_sessions').filter(function (s) {
+      return s.member_id === ctx.member_id && SES.isLive(s);
+    }).sort(function (a, b) { return String(b.started_at).localeCompare(String(a.started_at)); })[0] || null;
+  }
 
   function todayBag() {
     var rows = store.all('m_bags').filter(function (b) {
@@ -12028,11 +12039,11 @@
   }
 
   /**
-   * 今日动作摘要（V2.7 §6）：纯读，最多 3 行 + 「等 N 个动作」。
+   * 今日动作清单（V2.7 §6 引入，14 轮改为全量）：纯读，不再截断成 3 行。
    * 数据源：今日 draft 背包优先（那是马上要练的），背包为空才看今日计划项；
    * 同一动作在背包和计划里可能同时出现（PLAN.addToBag 不做查重也不删计划项），
-   * 所以按 exercise_id 去重——摘要只描述「今天练什么」，不重复计数、不写任何表。
-   * 只在 start / plan 两态调用（done 不显示、quick 本来就没安排）。
+   * 所以按 exercise_id 去重——清单只描述「今天练什么」，不重复计数、不写任何表。
+   * 每行带 sets / reps / weight：只有组数看不出今天练多重，这是「课表」的基本信息。
    */
   function todayPreview() {
     var bag = todayBag();
@@ -12043,22 +12054,50 @@
       var key = it.exercise_id || it.exercise_name_snapshot;
       if (!key || seen[key]) return;
       seen[key] = 1;
-      rows.push({ name: it.exercise_name_snapshot, sets: it.target_sets });
+      rows.push({
+        name: it.exercise_name_snapshot,
+        sets: it.target_sets,
+        reps: it.target_reps,
+        weight: it.target_weight
+      });
     });
     return rows;
   }
 
-  /** 摘要 HTML：主按钮下方的只读清单，最多 3 行，多出的合成一句「等 N 个动作」。 */
+  /** 重量显示：自重动作是 0 或空，打「× 0kg」是噪音，只在真有配重时出现 */
+  function itemWeightText(w) {
+    var n = parseFloat(w);
+    if (isNaN(n) || n <= 0) return '';
+    return ' × ' + n + 'kg';
+  }
+
+  /**
+   * 今日清单 HTML（14 轮）：全量渲染 + 卡片内滚动，不再「最多 3 行 + 等 N 个动作」。
+   * 状态分工：
+   *   resume / start / plan → 全量清单（今天要练什么，一次看全）
+   *   done（决策 B）→ 不铺全量，只淡化一行「今日 N 个动作」，别抢完成按钮的焦点
+   *   paused / quick → 不渲染（暂停中不催；无安排时禁止出现空列表壳）
+   * 纯读：这里不写任何表。改组次 / 换动作不在今日做，次要链进 #plan。
+   */
   function todayPreviewHtml(act) {
-    if (act.kind !== 'start' && act.kind !== 'plan') return '';
+    if (act.kind !== 'resume' && act.kind !== 'start'
+      && act.kind !== 'plan' && act.kind !== 'done') return '';
     var rows = todayPreview();
     if (!rows.length) return '';
-    var head = rows.slice(0, 3).map(function (r) {
-      return '<li><span>' + esc(r.name) + '</span>'
-        + (r.sets ? '<em><b>' + esc(r.sets) + '</b> 组</em>' : '') + '</li>';
+    /* 决策 D：进行中只读显示已记组数（SES.setsOf 现成可读），零写库 */
+    var head = (act.kind === 'resume' && act.sessionId)
+      ? '<p class="m-tsum-note">已记 ' + SES.setsOf(store, act.sessionId).length + ' 组</p>'
+      : '';
+    if (act.kind === 'done') {
+      return head + '<ul class="m-tsum m-tsum-done" aria-label="今日动作">'
+        + '<li><span>今日 ' + rows.length + ' 个动作</span></li></ul>';
+    }
+    var li = rows.map(function (r) {
+      return '<li><span>' + esc(r.name || '') + '</span>'
+        + '<em>' + esc(String(r.sets || '-')) + ' 组 × ' + esc(String(r.reps || '-')) + ' 次'
+        + itemWeightText(r.weight) + '</em></li>';
     }).join('');
-    var rest = rows.length > 3 ? '<li class="m-tsum-more">等 ' + (rows.length - 3) + ' 个动作</li>' : '';
-    return '<ul class="m-tsum" aria-label="今日动作摘要">' + head + rest + '</ul>';
+    return head + '<ul class="m-tsum" aria-label="今日动作">' + li + '</ul>';
   }
 
   function pageHome() {
@@ -12067,35 +12106,50 @@
        新用户首屏同时被两份指引抢注意力。档案页本身有说明和「稍后，先随便看看」。
        其余功能全部收进导航：任务/挑战 → #growth?tab=task、灵感卡 → #explore、
        AI 入口与「已与教练关联」→ #me、落后说明与待办 → #plan。
-       （每日/每周任务的生成也随卡片一起搬到了成长中心，见 pageGrowth。） */
+       （每日/每周任务的生成也随卡片一起搬到了成长中心，见 pageGrowth。）
+       14 轮：首页从「中转站」升级成**当天训练执行面**（状态 + 全量今日清单 + 一个主按钮
+       + 一条次要链 + 本周进度），但仍然只做这一件事。与其它页的分工（别再互相搬家）：
+         · 今日 #home —— 当天清单与开练（只读，不写库）
+         · 计划 #plan —— 一周编排、生成 / 空白计划、改组次数
+         · 动作库 #exercises —— 检索与详情
+         · AI练 #ai —— 姿势辅助（不写入会员历史的说明保持）
+         · 我的 #me —— 档案 / 历史 / 成长 / 设置
+       灵感 / 挑战 / 探索 / AI 大卡一律不回首页；改组次数也不在今日做——那是 #plan 的事。 */
     var p = store.find('m_profiles', ctx.member_id) || {};
     var act = todayAction();
     var w = XP.weeklyStats(store, ctx.member_id, PLAN.mondayOf(today()));
     var sec = homeSecondary(act);
 
     return ''
-      /* 唯一的工作台卡片（全站唯一柔色底 .m-card-hero）：
-            一句状态 → 唯一主按钮 → 文字链次要入口 → 本周进度一行。别的不放。 */
+      /* 唯一的工作台卡片（全站唯一柔色底 .m-card-hero）。14 轮起的固定顺序：
+            标题 → 一句状态 → 今日清单 → 唯一主按钮 → 文字链次要入口 → 本周进度一行。
+         清单放在主按钮**之前**：先看清今天练什么，再决定按哪个按钮——
+         反过来会把「开始训练」挤到一个用户还没读过的清单上面。别的不放。 */
       + '<section class="m-card m-card-hero">'
-      + '<div class="m-card-h"><h2>今天</h2><span class="m-pill">' + today() + '</span></div>'
+      /* 决策 A：主文案「今天 · 周几」，日期退到 pill。课表感来自周几，不是日期。 */
+      + '<div class="m-card-h"><h2>今天 · 周' + dayName(jsDayToPlanDay(new Date().getDay()))
+      + '</h2><span class="m-pill">' + today() + '</span></div>'
       /* 一句状态：问候 + 当前档位合成一句自然话。
          以前是「你好，××（状态），tip。」——括号夹一句、逗号再挂一段，读起来像系统日志。 */
       + '<p class="m-p">你好，<b>' + esc(p.name || ctx.member_id) + '</b>，'
       + esc(act.tip || '') + '。</p>'
+      /* 今日清单：全量 + 卡片内滚动（14 轮）。有安排才渲染，无安排不出现空壳。 */
+      + todayPreviewHtml(act)
       + (act.kind === 'quick'
         /* V2.7 决策二：首页「自由训练」只导航到 #quick，由那页的「直接开始」建会话——
-           建会话是写操作，绝不由首页主按钮代劳（重复渲染 / 误触都不会意外开练）。 */
+           建会话是写操作，绝不由首页主按钮代劳（重复渲染 / 误触都不会意外开练）。
+           14 轮决策 C：仅有计划项时主按钮仍是「今日安排」→ #plan——
+           把计划批量塞进背包是 addToBag × N 的写操作，只能发生在 #bag 用户点击之后。 */
         ? '<a class="m-btn m-btn-primary m-btn-lg" href="' + act.href + '">' + act.label + '</a>'
         : (act.kind === 'done'
           /* 今日已完成：完成态走橙红浅底深字（练完=橙红），不用警报样式也不用主紫 */
           ? '<a class="m-btn m-btn-done m-btn-lg" href="' + act.href + '">' + act.label + '</a>'
           : '<a class="m-btn m-btn-primary m-btn-lg" href="' + act.href + '">' + act.label + '</a>'))
       + (sec
-          /* 次要入口是文字链，不是第二个大按钮——08 轮规范 */
+          /* 次要入口是文字链，不是第二个大按钮——08 轮规范。
+             且必须与主按钮目的不同（09 轮）：同一个 URL 摆两次等于没给选择。 */
           ? '<p class="m-hint">或者：<a href="' + sec.href + '">' + esc(sec.label) + '</a></p>'
           : '')
-      /* V2.7：今日动作摘要，只读、最多 3 行，只在有安排时出现（start / plan 态） */
-      + todayPreviewHtml(act)
       /* 本周进度是纯文本，不再带第二个链接（「任务与挑战在成长中心」挪去 #me / #growth） */
       + (p.onboarding_done === 'Y'
         ? '<p class="m-hint">本周已完成 ' + w.completedCount + ' / ' + w.frequencyGoal + ' 次。</p>' : '')
