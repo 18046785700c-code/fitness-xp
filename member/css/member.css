@@ -456,7 +456,8 @@ code {
 
 /* 尊重系统「减少动态效果」：去掉过渡与旋转，但保留瞬时状态色变化 */
 @media (prefers-reduced-motion: reduce) {
-  .m-btn, .m-btn-loading::after, .m-tab, .m-tab2, .m-bar > i, .m-chip-x, .m-prog > i {
+  .m-btn, .m-btn-loading::after, .m-tab, .m-tab2, .m-bar > i, .m-chip-x, .m-prog > i,
+  .m-weekbar > i {
     transition: none; animation: none;
   }
 }
@@ -987,6 +988,20 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
 .m-setrow > b { flex: 1; min-width: 0; font-weight: 600; }
 .m-setrow > em { flex: none; font-style: normal; font-size: var(--m-fs-xs); color: var(--m-sub); }
 
+/* 待保存警示条（决策 1）：写盘失败的那一组只在内存里。
+   刻意用「白底 + 左侧粗线」而不是整块红底 —— 它是状态说明，不是错误弹窗；
+   文字用 --m-err-ink 保证白底对比度（--m-done 那类浅色不能当文字）。 */
+.m-pending {
+  margin: 12px 0 0; padding: 10px 12px;
+  background: var(--m-card);
+  border: 1px solid var(--m-err-line, #F0C9CE);
+  border-left: 3px solid var(--m-err-ink);
+  border-radius: 10px;
+  font-size: var(--m-fs-sm); line-height: 1.5;
+}
+.m-pending > b { display: block; margin-bottom: 2px; color: var(--m-err-ink); }
+.m-pending > span { display: block; color: var(--m-sub-ink); }
+
 /* 结束训练的卡片：危险区用浅灰边框区隔开，
    「放弃」是唯一用红色的按钮，且与「结束并结算」不同形 */
 .m-finish-zone {
@@ -1271,6 +1286,21 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
 .m-tsum-done li em { font-style: normal; flex: none; color: var(--m-sub-ink); font-size: var(--m-fs-xs); }
 /* 进行中已记组数：弱文本一行，不占按钮位（纯读） */
 .m-tsum-note { margin: 10px 0 -6px; font-size: var(--m-fs-xs); color: var(--m-sub-ink); }
+/* 完成态数据行（18 轮）：「时长 · 组数 · +XP」，与「今日 N 个动作」同层级，不抢主按钮。
+   hero 是柔紫渐变区，次级文字照旧只能走 --m-sub-ink（09 轮用 --m-sub 只有 4.25:1）。 */
+.m-tsum-data { margin: 8px 0 -4px; font-size: var(--m-fs-xs); color: var(--m-sub-ink); }
+/* 本周进度细条（18 轮）：6px、圆角、弱紫，只做陪衬。
+   刻意不复用 .m-prog 分段条——那是训练执行页「第几组」的语义，搬上首页会变成第二块信息。 */
+.m-weekbar {
+  display: block; height: 6px; margin-top: 6px;
+  border-radius: 999px; overflow: hidden;
+  background: #EFEDF6; border: 1px solid var(--m-border);
+}
+.m-weekbar > i {
+  display: block; height: 100%;
+  background: var(--m-purple); border-radius: 999px;
+  transition: width var(--m-ease-slow);
+}
 
 .m-airow { margin-top: 10px; }
 .m-airow b { display: block; font-size: var(--m-fs-sm); margin-bottom: 4px; }

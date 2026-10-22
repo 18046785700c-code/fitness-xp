@@ -12168,6 +12168,46 @@
   }
 
   /**
+   * 完成态那一行的训练数据（18 轮）：时长 · 组数 · +XP。
+   * 口径刻意与「今日 N 个动作」、以及点进去的总结页**完全同源**——都取当日最近一次
+   * completed 会话。若改成「当日全部会话合计」，首页三个数字会和落地页对不上
+   * （N 说 2 个动作、数据行却是全天两次训练的合计）。
+   * 「有什么示什么」：duration_sec 为 0（夹具冻结时钟时就会）整段不出现，不写「0 分钟」充数；
+   * 三段全空则整行不渲染，绝不摆空壳。纯读：m_sessions 一行 + m_xp_ledger 求和，零写库。
+   */
+  function doneStatLine(sessionId) {
+    if (!sessionId) return '';
+    var s = store.find('m_sessions', sessionId);
+    if (!s) return '';
+    var parts = [];
+    var dur = +s.duration_sec || 0;
+    if (dur >= 60) parts.push(Math.floor(dur / 60) + ' 分钟');
+    else if (dur > 0) parts.push(dur + ' 秒');
+    if ((+s.total_sets || 0) > 0) parts.push(s.total_sets + ' 组');
+    /* 与总结页 3193-3194 同一算法：该会话 source_ref 下的流水求和（含负数冲抵，不加绝对值）。 */
+    var xp = (XP.ledgerOf(store, ctx.member_id, sessionId) || []).reduce(function (a, x) {
+      return a + (+x.points || 0);
+    }, 0);
+    if (xp > 0) parts.push('+' + xp + ' XP');
+    if (!parts.length) return '';
+    return '<p class="m-tsum-data">' + esc(parts.join(' · ')) + '</p>';
+  }
+
+  /**
+   * 本周进度的细条（18 轮）：只给完成度一个弱视觉，不提成第二张卡。
+   * 目标 y 次 → 一条 6px 细条；超额（x > y）填满，不画溢出段。
+   * 刻意不复用 .m-prog 分段条（那是训练执行页「第几组」的语义），也不搬 .m-bar 的 10px 高度——
+   * 首页这一行只是陪衬，不该和唯一的主按钮抢注意力。
+   */
+  function weekBarHtml(done, goal) {
+    var y = parseInt(goal, 10);
+    if (!(y > 0)) return '';
+    var x = Math.max(0, Math.min(y, +done || 0));
+    var pct = Math.round(x / y * 1000) / 10;
+    return '<span class="m-weekbar" aria-hidden="true"><i style="width:' + pct + '%"></i></span>';
+  }
+
+  /**
    * 今日清单 HTML（14 轮）：全量渲染 + 卡片内滚动，不再「最多 3 行 + 等 N 个动作」。
    * 状态分工：
    *   resume / start / plan → 全量清单（今天要练什么，一次看全）
@@ -12189,9 +12229,12 @@
     if (act.kind === 'done') {
       var n = act.sessionId ? sessionExerciseCount(act.sessionId) : 0;
       if (!n) return head;   /* 真没练过动作就不摆空行 */
+      /* 18 轮：数据行放在 .m-tsum **外面**——它是「这一训的读数」，不是清单里的一项，
+         混进 <li> 会让清单行数从 1 变 2（TL-31 锁的就是「完成态只收成一行」）。 */
       return head + '<ul class="m-tsum m-tsum-done" aria-label="今日动作">'
         + '<li><a href="' + act.href + '"><span>今日 ' + n + ' 个动作</span>'
-        + '<em>看总结</em></a></li></ul>';
+        + '<em>看总结</em></a></li></ul>'
+        + doneStatLine(act.sessionId);
     }
     /* 其余态才依赖背包 / 计划项。注意这句早退必须排在 done **之后**：
        done 的数不来自这里，若先早退，没排计划的人练完就会整行消失、又是那片空白。 */
@@ -12265,9 +12308,11 @@
              且必须与主按钮目的不同（09 轮）：同一个 URL 摆两次等于没给选择。 */
           ? '<p class="m-hint">或者：<a href="' + sec.href + '">' + esc(sec.label) + '</a></p>'
           : '')
-      /* 本周进度是纯文本，不再带第二个链接（「任务与挑战在成长中心」挪去 #me / #growth） */
+      /* 本周进度：文字 + 一条细进度条（18 轮）。仍不带第二个链接
+         （「任务与挑战在成长中心」挪去 #me / #growth），也不提成第二张卡。 */
       + (p.onboarding_done === 'Y'
-        ? '<p class="m-hint">本周已完成 ' + w.completedCount + ' / ' + w.frequencyGoal + ' 次。</p>' : '')
+        ? '<p class="m-hint">本周已完成 ' + w.completedCount + ' / ' + w.frequencyGoal + ' 次。'
+          + weekBarHtml(w.completedCount, w.frequencyGoal) + '</p>' : '')
       + '</section>';
   }
 
@@ -12893,6 +12938,23 @@
   }
 
   /**
+   * 今日背包查重（决策 4）：同一动作在背包里已有条目就返回那一条，否则 null。
+   * 刻意放在应用层——领域层 PLAN.addToBag 本身不查重（语义不变，Node 侧测试与教练端分享同一套领域层）。
+   * 查的是 exercise_id，不比较组数次数：同一动作一天安排两次没有业务意义，
+   * 想练更多组直接去背包「改参数」。
+   */
+  function bagItemOfExercise(bagId, exId) {
+    if (!bagId || !exId) return null;
+    return bagItems(bagId).filter(function (i) { return i.exercise_id === exId; })[0] || null;
+  }
+
+  /** 重复加入时的统一提示：说清「在哪」「怎么改」，不写「添加失败」这种没信息量的话 */
+  function dupBagMsg(name, it) {
+    return '「' + name + '」已经在今日背包里了（' + it.target_sets + ' 组 × '
+      + it.target_reps + ' 次）。要改参数进背包点「改参数」，不重复添加。';
+  }
+
+  /**
    * 列表里的「+ 加入背包」快捷入口：按动作自带参考值直接加，不弹表单。
    * 想改组数次数可以到详情页加，或在背包里点「改参数」。
    */
@@ -12901,6 +12963,8 @@
     if (!ex) { toast('动作不存在：' + exId, 'err'); return; }
     var bag = ensureBag();
     if (!bag) return;
+    var dup = bagItemOfExercise(bag.bag_id, exId);
+    if (dup) { toast(dupBagMsg(ex.name, dup), 'warn', 4500); return; }
     var sr = parseSetsReps(ex.reference_sets_reps);
     var r = PLAN.addToBag(store, ctx.member_id, bag.bag_id, {
       exercise_id: exId, source: 'library',
@@ -13197,6 +13261,15 @@
       var bag = ensureBag();
       if (!bag) return;
       var msg = $('bgMsg');
+      var dup = bagItemOfExercise(bag.bag_id, r.id);
+      if (dup) {
+        /* r 是绑定层传进来的轻对象（只有 id），名字要从库里取 —— 直接写 r.name 会印出「undefined」 */
+        var exRow = store.find('m_exercises', r.id);
+        var dt = dupBagMsg((exRow && exRow.name) || dup.exercise_name_snapshot || '这个动作', dup);
+        if (msg) { msg.className = 'm-hint m-warn'; msg.textContent = dt; }
+        toast(dt, 'warn', 4500);
+        return;
+      }
       var res = PLAN.addToBag(store, ctx.member_id, bag.bag_id, {
         exercise_id: r.id, source: 'library',
         target_sets: $('bgSets').value,
@@ -13874,6 +13947,16 @@
         var it = store.find('m_plan_items', b.getAttribute('data-pi-bag'));
         if (!it) return;
         var bag = ensureBag();
+        if (!bag) return;
+        /* 决策 4：应用层查重。计划里同一个动作排了两次时，第二次点「加入背包」不再多插一条 */
+        var dup = bagItemOfExercise(bag.bag_id, it.exercise_id);
+        if (dup) {
+          var dt = dupBagMsg(it.exercise_name_snapshot || '这个动作', dup);
+          toast(dt, 'warn', 4500);
+          var pm0 = $('planMsg');
+          if (pm0) { pm0.className = 'm-hint m-warn'; pm0.textContent = dt; }
+          return;
+        }
         var r = PLAN.addToBag(store, ctx.member_id, bag.bag_id, {
           exercise_id: it.exercise_id, source: 'plan',
           target_sets: it.target_sets, target_reps: it.target_reps, target_weight: it.target_weight
@@ -13916,7 +13999,11 @@
     });
   }
 
-  /** 取（或建）今日背包。一天最多一个 draft bag。 */
+  /**
+   * 取（或建）今日背包。一天最多一个 draft bag。
+   * ⚠ 只允许在**用户显式动作**里调用（挑动作、把计划放进背包）——
+   * 页面渲染一律用 todayBag() 纯读：`getTodayBag` 默认 create，渲染里调它等于"进页面就写一条 m_bags"。
+   */
   function ensureBag() {
     var r = PLAN.getTodayBag(store, ctx.member_id);
     if (r.ok === false) { toast(r.message || r.reason, 'err'); return null; }
@@ -13927,8 +14014,25 @@
   /* ---------------------------------------------------------------- 页面：今日背包 #bag */
 
   function pageBag() {
-    var bag = ensureBag();
-    if (!bag) return '<section class="m-card"><p class="m-p">背包初始化失败，请返回首页重试。</p></section>';
+    /* 决策 3：纯读。以前这里调 ensureBag()，光进 #bag 就会写一条空 m_bags；
+       现在没有背包就渲染空态，建包只发生在用户点「挑动作 / 把计划放进来」之后。 */
+    var bag = todayBag();
+    if (!bag) {
+      var plan0 = todayPlanItems();
+      return ''
+        + '<section class="m-card m-card-blue"><div class="m-card-h"><h2>今日背包</h2>'
+        + '<span class="m-pill">' + today() + '</span></div>'
+        + '<p class="m-p">今天还没有背包。</p>'
+        + '<p class="m-hint">背包是你自己挑的今日训练内容：先放动作，再确认开练。'
+        + '它还不是事实，不会产生记录，也不会占用任何数据。</p>'
+        + '<div class="m-btn-row">'
+        + '<a class="m-btn m-btn-primary" href="#exercises">去动作库挑动作</a>'
+        + (plan0.length
+          ? '<button class="m-btn m-btn-ghost" id="btnBagFromPlan">把今天的计划做成背包（'
+            + plan0.length + ' 个）</button>'
+          : '<a class="m-btn m-btn-ghost" href="#plan">去排计划</a>')
+        + '</div><div class="m-hint" id="bagMsg"></div></section>';
+    }
     var items = bagItems(bag.bag_id);
     var planItems = todayPlanItems();
 
@@ -13970,23 +14074,39 @@
           + '<p class="m-hint">去动作库挑动作，或把今天的计划放进来。</p></section>');
   }
 
+  /** 把今天的计划项批量放进背包（复制不引用）。
+      决策 4：已在背包里的动作直接跳过，不再重复插一条 —— 否则「点两次按钮」背包里就有两份同样的安排。 */
+  function fillBagFromTodayPlan(bid) {
+    var items = todayPlanItems(), n = 0, skipped = 0;
+    items.forEach(function (it) {
+      if (bagItemOfExercise(bid, it.exercise_id)) { skipped++; return; }
+      var r = PLAN.addToBag(store, ctx.member_id, bid, {
+        exercise_id: it.exercise_id, source: 'plan',
+        target_sets: it.target_sets, target_reps: it.target_reps, target_weight: it.target_weight
+      });
+      if (r.ok) n++; else skipped++;
+    });
+    run({ ok: true }, '已放入 ' + n + ' 个动作'
+      + (skipped ? '，跳过 ' + skipped + ' 个已在背包里的' : ''));
+    render();
+  }
+
   function bindBag() {
+    /* 空态（决策 3）：不点就不建包；点了才算用户显式动作 */
+    var mk = $('btnBagFromPlan');
+    if (mk) mk.addEventListener('click', function () {
+      var b = ensureBag();
+      if (!b) return;
+      fillBagFromTodayPlan(b.bag_id);
+    });
+
     var bag = todayBag();
     if (!bag) return;
     var bid = bag.bag_id;
 
     var p2b = $('btnPlanToBag');
     if (p2b) p2b.addEventListener('click', function () {
-      var items = todayPlanItems();
-      var n = 0;
-      items.forEach(function (it) {
-        var r = PLAN.addToBag(store, ctx.member_id, bid, {
-          exercise_id: it.exercise_id, source: 'plan',
-          target_sets: it.target_sets, target_reps: it.target_reps, target_weight: it.target_weight
-        });
-        if (r.ok) n++;
-      });
-      run({ ok: true }, '已放入 ' + n + ' 个动作'); render();
+      fillBagFromTodayPlan(bid);
     });
 
     var st = $('btnStartBag');
@@ -14225,10 +14345,13 @@
       + (prev ? '<button class="m-btn m-btn-ghost" id="btnCopyPrev">复制上一组</button>' : '')
       + (sets.length ? '<button class="m-btn m-btn-ghost" id="btnUndoSet">撤销上一组</button>' : '')
       + '</div>'
-      /* Q2：写盘失败时这一组还在内存里、还没进本机存储，给一个只做 persist 的重试入口。
-         它绝不重新记组、不碰 XP，重复点也不会多写一条。 */
+      /* 决策 1：写盘失败这一组只在内存里 —— 文案必须把「刷新就永久丢」写清楚，
+         别用「保存中」这类模糊说法（那会让人以为等等就好）。 */
       + (wPendingSave
-        ? '<div class="m-btn-row"><button class="m-btn m-btn-ghost" id="btnRetrySave">重试保存</button></div>'
+        ? '<div class="m-pending" id="wPending"><b>第 ' + wPendingSave.setIndex + ' 组只在内存里</b>'
+          + '<span>它还没写进本机存储。刷新、关闭页面或切到别的应用都可能让它永久丢失，找不回来。'
+          + '点「重试保存」写进本机后再继续。</span></div>'
+          + '<div class="m-btn-row"><button class="m-btn m-btn-ghost" id="btnRetrySave">重试保存</button></div>'
         : '')
       + '<div class="m-hint" id="wMsg"></div>'
       + '</section>'
@@ -14322,8 +14445,9 @@
              文案必须如实——写「已保存」是谎报；同时挂起待保存，禁止继续往下记。 */
           wPendingSave = { setId: rr.set.set_id, setIndex: rr.setIndex };
           render();
-          say('m-err', '第 ' + rr.setIndex + ' 组已记录，但没能保存到本机。请点「重试保存」，'
-            + '否则刷新会丢失这一组。');
+          say('m-err', '第 ' + rr.setIndex + ' 组已记录，但没能保存到本机（现在只在内存里）。'
+            + '刷新或关闭页面就会永久丢失这一组，找不回来。请点「重试保存」；'
+            + '保存成功前不能记下一组，也不能结束训练。');
           /* 400ms 后照样解锁（禁用只是防误触，不是处罚）：拦住继续记组的是 wPendingSave，
              用户再点会看到「请先点重试保存」，比一个永远灰着的按钮说得清楚。 */
           lockLog();
@@ -14341,7 +14465,11 @@
       if (wRetryBusy) return;
       wRetryBusy = true;
       try {
-        if (!persist()) { say('m-err', '还是没保存成功，可以再试一次。'); return; }
+        if (!persist()) {
+          say('m-err', '还是没能保存。这一组仍在内存里，刷新就会永久丢；'
+            + '可以腾出浏览器存储空间后再点一次「重试保存」。');
+          return;
+        }
         var n = wPendingSave ? wPendingSave.setIndex : '';
         wPendingSave = null;
         lockLog();
@@ -14350,7 +14478,8 @@
       } finally { wRetryBusy = false; }
     });
     /* 切页回来时若仍挂着待保存，把状态摆在提示位，别让按钮看着像一切正常 */
-    if (wPendingSave) say('m-err', '第 ' + wPendingSave.setIndex + ' 组还没保存到本机，请点「重试保存」。');
+    if (wPendingSave) say('m-err', '第 ' + wPendingSave.setIndex + ' 组还没保存到本机，'
+      + '刷新就会永久丢。请点「重试保存」。');
 
     var cp = $('btnCopyPrev');
     if (cp) cp.addEventListener('click', function () {
@@ -14389,8 +14518,10 @@
           var em = $('wEndMsg');
           if (em) {
             em.className = 'm-hint m-err';
-            em.textContent = '第 ' + wPendingSave.setIndex + ' 组还没保存到本机，'
-              + '请先点「重试保存」再结束这次训练。';
+            /* 决策 2（用户拍板）：保存不成功就不许结算，保持阻断。
+               宁可结束不了，也不能把「已结算 + 没落盘」推到刷新后全丢。 */
+            em.textContent = '第 ' + wPendingSave.setIndex + ' 组还没保存到本机，现在结束会丢掉它。'
+              + '请先点「重试保存」再结束这次训练（保存成功前不能结算）。';
           }
           return;
         }
