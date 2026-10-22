@@ -6971,7 +6971,33 @@
     if (opt.beforeSessionId) {
       mine = mine.filter(function (s) { return s.session_id !== opt.beforeSessionId; });
     }
-    mine.sort(function (a, b) { return String(b.session_date).localeCompare(String(a.session_date)); });
+    /* 排序：日期降序 → 结束时刻降序（缺失则用开始时刻）→ 会话ID降序。
+       只比日期是不够的：一天练两次时同日期会退回插入顺序（旧的在前面），
+       于是「上次」取到当天更早的那一次（20 轮探针实测 40kg/55kg 取反）。
+       时间字段格式固定为 'YYYY-MM-DD HH:MM:SS'，字典序即时间序，直接字符串比较。
+       这是纯读取排序，不改任何记录。
+
+       ——这个排序的边界，如实写在这里，别在别处夸大成「严格时间顺序」——
+       1) ended_at 缺失时回退 started_at。
+          注意：**保存拦不住这种数据** —— validateMemberSnapshot(schema:604-613) 只校验
+          快照结构（版本 / savedAt / 表存在性），不做逐行校验；逐行的 condCheck 只在
+          store.update / 导入时跑。所以「completed 却没 ended_at」的记录是能 save 成功、
+          也能 load 回来的（member-domain-test F-9 实测为证）。
+          真正让 ended_at 不缺的是**写入路径**：complete(session.js:502) 与 abandon(:527)
+          都必然写 ended_at。正常业务流产生的记录一定带；损坏数据、手工改过的数据、
+          或将来某个忘了写 ended_at 的新路径，会让这条回退真的跑起来。
+       2) 两条记录 ended_at 完全相同时（同一秒结束），退到 session_id 降序。
+          session_id 是创建顺序的代理，不是真实时间顺序——此时「先后」没有可靠依据，
+          函数只是给出一个确定且可复现的结果，不声称它等于真实训练先后。
+       3) 绝不为了比较而编造时间，也绝不回写/修正任何历史时间戳。 */
+    mine.sort(function (a, b) {
+      var d = String(b.session_date).localeCompare(String(a.session_date));
+      if (d) return d;
+      var ta = String(a.ended_at || a.started_at || '');
+      var tb = String(b.ended_at || b.started_at || '');
+      if (ta !== tb) return ta < tb ? 1 : -1;
+      return String(b.session_id).localeCompare(String(a.session_id));
+    });
 
     for (var i = 0; i < mine.length; i++) {
       var rows = setsOf(store, mine[i].session_id).filter(function (r) { return r.exercise_id === exerciseId; });
@@ -14292,8 +14318,50 @@
       : (wExPick || (sets.length ? sets[sets.length - 1].exercise_id : ''));
     var curSets = activeExId
       ? sets.filter(function (x) { return x.exercise_id === activeExId; }) : [];
-    var last = activeExId ? SES.lastSetsFor(store, ctx.member_id, activeExId) : { sets: [] };
+    /* 上次同一动作的表现。「beforeSessionId」把本次会话排除在外：现在它必然是
+       in_progress（已被 lastSetsFor 的状态过滤挡掉），显式传一次是为了将来
+       万一放开状态过滤时也不会把本次成绩当成「上次」。 */
+    var last = activeExId
+      ? SES.lastSetsFor(store, ctx.member_id, activeExId, { beforeSessionId: s.session_id })
+      : { sets: [] };
     var prev = curSets[curSets.length - 1];
+
+    /*
+     * 上次成绩预填（20 轮）。
+     *
+     * 只做「填入初始值」：pageWorkout 是纯渲染，不写库、不建会话、不发 XP。
+     * 预填值既不是本次已完成，也不会进历史 —— 只有点「完成本组」才会落 m_sets。
+     *
+     * 取值顺序（用户拍板）：
+     *   1) 同一动作（exercise_id 精确匹配，不按名称相似）上次第 N 组；
+     *      超上次组数就退回上次最后一组，规则单一可预测。
+     *   2) 没有历史时用本次上一组（本次已确认的实际输入）。
+     *   3) 再没有就用计划目标。
+     *   4) 都没有就留空。
+     *
+     * 版本守卫：动作内容改版后旧重量不可比，直接不预填，只提示。
+     *
+     * ——守卫当前的真实状态，如实写在这里——
+     * 全项目没有任何「把 m_exercises.version 递增到 2」的代码路径（version 只被
+     * 读取和展示），种子动作与自建动作恒为 v1。因此这条守卫在生产环境**恒通过**，
+     * 是一条目前跑不到的分支；它的唯一验证来自测试里手工把 m_sets.exercise_version
+     * 改成 2（ui-prefill PB-16a/17），属**模拟版本差异**，不等于真实动作改版流程
+     * 已被验证。本阶段不因此去设计版本迁移机制。
+     * 另：判定只取 last.sets[0].exercise_version，而预填可能取到 last.sets[N]；
+     * 同一会话内版本不一致时判定不完备（今天不可能出现，属未来保护的已知缺口）。
+     */
+    var histVer = last.sets.length ? (+last.sets[0].exercise_version || 1) : 0;
+    var ex0 = activeExId ? store.find('m_exercises', activeExId) : null;
+    var curVer = +((cur && cur.version) || (ex0 && ex0.version) || 1);
+    var histVerOk = last.sets.length > 0 && histVer === curVer;
+    var histSet = histVerOk
+      ? (last.sets[curSets.length] || last.sets[last.sets.length - 1])
+      : null;
+    var prefillWeight = histSet ? histSet.weight
+      : (prev ? prev.weight : (cur && cur.target_weight ? cur.target_weight : ''));
+    var prefillReps = histSet ? histSet.reps
+      : (prev ? prev.reps : (cur ? cur.target_reps : ''));
+    var planPrefill = !histSet && !prev && !!(cur && (cur.target_weight || cur.target_reps));
     var activeName = cur ? cur.name : (activeExId
       ? ((store.find('m_exercises', activeExId) || {}).name || '自选动作') : '自选动作');
 
@@ -14322,19 +14390,27 @@
         }).join('') + '</select></label></div></section>')
 
       + '<section class="m-card"><div class="m-card-h"><h2>记录这一组</h2></div>'
+      /*
+       * 一行交代三件事的来源：目标在上面的 .m-now，上次在这里，本次就是下面两个输入框。
+       * 文案刻意分开说「已带入本次输入」与「未带入」——不能让用户以为已经记过了。
+       */
       + (last.sets.length
         ? '<p class="m-hint">上次（' + esc(last.date) + '）：'
           + last.sets.slice(0, 3).map(function (x) {
-            return (x.weight ? x.weight + 'kg × ' : '') + x.reps + ' 次';
-          }).join('，') + '</p>'
-        : '<p class="m-hint">这个动作还没有历史记录。</p>')
+            return (x.weight ? x.weight + 'kg × ' : '自重 × ') + x.reps + ' 次';
+          }).join('，')
+          + (last.sets.length > 3 ? ' 等共 ' + last.sets.length + ' 组' : '')
+          + (histSet ? ' · 已带入本次输入，可直接改' : '（动作内容已更新，未带入本次成绩）')
+          + '</p>'
+        : '<p class="m-hint">这个动作还没有历史记录。'
+          + (planPrefill ? '已按计划目标预填，可直接改。' : '') + '</p>')
       + '<div class="m-form m-form-row">'
       + '<label class="m-fld"><span>重量（kg）</span>'
       + '<input id="wWeight" type="text" inputmode="decimal" placeholder="自重留空" value="'
-      + (prev ? esc(prev.weight) : (cur && cur.target_weight ? esc(cur.target_weight) : '')) + '"></label>'
+      + esc(prefillWeight) + '"></label>'
       + '<label class="m-fld"><span>次数 <b class="m-req">*</b></span>'
       + '<input id="wReps" type="text" inputmode="numeric" placeholder="1-999" value="'
-      + (prev ? esc(prev.reps) : (cur ? esc(cur.target_reps) : '')) + '"></label>'
+      + esc(prefillReps) + '"></label>'
       + '</div>'
       + '<div class="m-btn-row">'
       /* 防误触闸门期内直接把 disabled 画进节点（说明见 wLogUntil 的注释）。

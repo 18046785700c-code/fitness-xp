@@ -540,7 +540,33 @@
     if (opt.beforeSessionId) {
       mine = mine.filter(function (s) { return s.session_id !== opt.beforeSessionId; });
     }
-    mine.sort(function (a, b) { return String(b.session_date).localeCompare(String(a.session_date)); });
+    /* 排序：日期降序 → 结束时刻降序（缺失则用开始时刻）→ 会话ID降序。
+       只比日期是不够的：一天练两次时同日期会退回插入顺序（旧的在前面），
+       于是「上次」取到当天更早的那一次（20 轮探针实测 40kg/55kg 取反）。
+       时间字段格式固定为 'YYYY-MM-DD HH:MM:SS'，字典序即时间序，直接字符串比较。
+       这是纯读取排序，不改任何记录。
+
+       ——这个排序的边界，如实写在这里，别在别处夸大成「严格时间顺序」——
+       1) ended_at 缺失时回退 started_at。
+          注意：**保存拦不住这种数据** —— validateMemberSnapshot(schema:604-613) 只校验
+          快照结构（版本 / savedAt / 表存在性），不做逐行校验；逐行的 condCheck 只在
+          store.update / 导入时跑。所以「completed 却没 ended_at」的记录是能 save 成功、
+          也能 load 回来的（member-domain-test F-9 实测为证）。
+          真正让 ended_at 不缺的是**写入路径**：complete(session.js:502) 与 abandon(:527)
+          都必然写 ended_at。正常业务流产生的记录一定带；损坏数据、手工改过的数据、
+          或将来某个忘了写 ended_at 的新路径，会让这条回退真的跑起来。
+       2) 两条记录 ended_at 完全相同时（同一秒结束），退到 session_id 降序。
+          session_id 是创建顺序的代理，不是真实时间顺序——此时「先后」没有可靠依据，
+          函数只是给出一个确定且可复现的结果，不声称它等于真实训练先后。
+       3) 绝不为了比较而编造时间，也绝不回写/修正任何历史时间戳。 */
+    mine.sort(function (a, b) {
+      var d = String(b.session_date).localeCompare(String(a.session_date));
+      if (d) return d;
+      var ta = String(a.ended_at || a.started_at || '');
+      var tb = String(b.ended_at || b.started_at || '');
+      if (ta !== tb) return ta < tb ? 1 : -1;
+      return String(b.session_id).localeCompare(String(a.session_id));
+    });
 
     for (var i = 0; i < mine.length; i++) {
       var rows = setsOf(store, mine[i].session_id).filter(function (r) { return r.exercise_id === exerciseId; });
