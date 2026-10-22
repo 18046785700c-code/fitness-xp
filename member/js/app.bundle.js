@@ -7720,6 +7720,29 @@
     };
   }
 
+  /**
+   * 周目标次数的**唯一取值口**（23 轮方案 A）。
+   *
+   * 为什么单独抽一个函数：此前 `intOr(prof.frequency_goal, 3)` 散落在 weeklyStats / ensureWeekly
+   * 两处，而那个 3 是**编造出来的默认目标**——profile 行缺失时会拿它去判定「本周达没达标」，
+   * 进而发 XP_WEEK_TARGET、续连续周数、写 timeline。一个会员从未设定过的目标不该参与发奖。
+   *
+   * 取值约定（实测过，不猜）：
+   *   · 只接受整数 1–7（与 schema 的建议范围、档案页校验一致，见 fxp-member-schema.js:73）；
+   *   · 0 / 负数 / 8 以上 / 非数字 / profile 整行缺失 → 一律 **0**，0 的含义是「没有可信目标」，
+   *     **绝不静默修正成 1 或 3** —— 悄悄替会员定目标是另一种谎报；
+   *   · 下游（settleWeek / evaluateWeekly / ensureWeekly）在拿到 0 时必须**不判定、不发奖、不建挑战**。
+   *
+   * 为什么要容忍 0 这种值存在：schema 的 `I('frequency_goal',1,[1,7])` 走的是 warnRange，
+   * 只告警不拒收（fxp-member-schema.js:489-490），所以 0 / -1 / 9 是**能进库**的；
+   * CSV 导入、手工改过的快照、程序化 update 都可能写出这些值。本轮不扩展为 schema 重构，
+   * 只在取值处收口。UI 与注册路径本身都有 1–7 校验，正常用户不受影响。
+   */
+  function frequencyGoalOf(prof) {
+    var n = intOr(prof && prof.frequency_goal, 0);
+    return (n >= 1 && n <= 7) ? n : 0;
+  }
+
   /** 单周派生统计（供周挑战判定） */
   function weeklyStats(store, memberId, weekStart, opt) {
     opt = opt || {};
@@ -7759,7 +7782,8 @@
       dayCount: Object.keys(days).length,
       prCount: prs.length,
       planRate: rateN ? Math.round(rateSum / rateN * 10) / 10 : 0,
-      frequencyGoal: intOr(prof.frequency_goal, 3)
+      /* 23 轮方案 A：不再用 intOr(..., 3) 编造默认目标；拿不到可信目标就返回 0（含义见 frequencyGoalOf）。 */
+      frequencyGoal: frequencyGoalOf(prof)
     };
   }
 
@@ -7946,7 +7970,7 @@
     opt = opt || {};
     var ws = weekStart || mondayOf(todayStr());
     var prof = store.find('m_profiles', memberId) || {};
-    var freq = intOr(prof.frequency_goal, 3);
+    var freq = frequencyGoalOf(prof);
 
     var scored = WEEKLY_POOL.map(function (t) {
       return { t: t, s: hashStr(memberId + ws + t.code) % 1000 };
@@ -7960,6 +7984,11 @@
       if (t.base === 'frequency_goal') target = t.mul ? freq * t.mul : freq;
       else if (t.base === 'min_frequency') target = Math.min(freq, t.const);
       else target = t.const;
+      /* 23 轮方案 A：目标值由 frequency_goal 派生、而目标不可信（freq=0）时**不建这条挑战**。
+         否则 weekly_count 会建出 target=0 的挑战，evaluateWeekly 里 0>=0 立刻判达标 → 白送
+         XP_WEEKLY_CHALLENGE（weekly_days 同理：min(0,3)=0）。宁可这周少一条挑战，
+         也不能让一条「什么都不做就完成」的任务混进任务列表。 */
+      if (freq === 0 && (t.base === 'frequency_goal' || t.base === 'min_frequency')) continue;
       var exists = store.all('m_challenges').some(function (c) {
         return c.member_id === memberId && c.period_key === ws
           && c.challenge_code === t.code && c.period_type === 'weekly';
@@ -8016,7 +8045,10 @@
     for (var i = 0; i < rows.length; i++) {
       var c = rows[i];
       var v = weeklyValue(c.challenge_code, w);
-      var hit = v >= numOr(c.target_value, 1);
+      /* 23 轮方案 A：目标值 ≤0 视为「这条挑战没有有效目标」，一律判不达标。
+         原先 v >= numOr(target, 1) 在 target=0 时恒真，任何人都「完成」——
+         存量里若有历史建出来的 target=0 挑战，这里也会挡住，不会补发。 */
+      var hit = numOr(c.target_value, 0) > 0 && v >= numOr(c.target_value, 1);
       var patch = { current_value: v };
       if (hit && c.status === 'open') {
         patch.status = 'done';
@@ -8051,6 +8083,22 @@
     }
 
     var w = weeklyStats(store, memberId, ws, opt);
+    /*
+     * 23 轮方案 A：目标不可信时不判定、不写表、直接返回。
+     *
+     * 为什么必须拦在这里：`hit = completedCount >= frequencyGoal` 在 goal=0 时**恒真**
+     * （0 次训练也 ≥ 0），于是每周都发 50 XP_WEEK_TARGET、连续周数 +1、还写一条 timeline。
+     * 实测（改动前）：frequency_goal=0、0 次训练 → hit=true / gained=50 / 流水 2 条。
+     * 这属于「凭一个不存在或非法的数据发奖」，必须停掉。
+     *
+     * 刻意**不写 last_settled_week**：本轮压根没做判定，下周仍应正常判定；
+     * 重复发放由 grant 的 biz_key 幂等兜住，不需要靠 last_settled_week 挡。
+     * 返回结构与既有的 'already_settled' 保持同形（ok / skipped / reason / weekStart），
+     * 调用方不需要新增分支。
+     */
+    if (!(w.frequencyGoal > 0)) {
+      return { ok: true, skipped: true, reason: 'no_goal', weekStart: ws, frequencyGoal: 0 };
+    }
     var hit = w.completedCount >= w.frequencyGoal;
     var now = opt.now || nowStr();
     var prev = intOr(row && row.weekly_goal_streak, 0);
@@ -12194,21 +12242,28 @@
   }
 
   /**
-   * 完成态那一行的训练数据（18 轮）：时长 · 组数 · +XP。
+   * 完成态那一行的训练数据（18 轮写就、22 轮改口径）：组数 · +XP。
    * 口径刻意与「今日 N 个动作」、以及点进去的总结页**完全同源**——都取当日最近一次
    * completed 会话。若改成「当日全部会话合计」，首页三个数字会和落地页对不上
    * （N 说 2 个动作、数据行却是全天两次训练的合计）。
-   * 「有什么示什么」：duration_sec 为 0（夹具冻结时钟时就会）整段不出现，不写「0 分钟」充数；
-   * 三段全空则整行不渲染，绝不摆空壳。纯读：m_sessions 一行 + m_xp_ledger 求和，零写库。
+   *
+   * 【22 轮：这里曾经显示「时长 · 组数 · +XP」，时长段已移除，别再加回来】
+   * duration_sec 的语义是「结束时刻 − 开始时刻 − 暂停时长」，而全项目**没有**
+   * visibilitychange / beforeunload 处理：关掉页面或切到后台再回来结束训练时，
+   * 中间那段离线时间会被整段算进训练时长。22 轮探针实测：只记了 1 组，
+   * 算出 22200 秒（6.2 小时）。首页完成态的这条读数因此不可靠——
+   * 一个能被用户一眼看出是假的「6 小时」，比不显示更伤信任。
+   * 时长仍在 #summary 结算页显示（那里是详情页，用户带着上下文核对），
+   * 但首页这一行只放**能直接从 m_sets / m_xp_ledger 数出来**的两个数。
+   *
+   * 「有什么示什么」：组数为 0 或 XP 为 0 就整段不出现，不写「0 组 / +0 XP」充数；
+   * 两段全空则整行不渲染，绝不摆空壳。纯读：m_sessions 一行 + m_xp_ledger 求和，零写库。
    */
   function doneStatLine(sessionId) {
     if (!sessionId) return '';
     var s = store.find('m_sessions', sessionId);
     if (!s) return '';
     var parts = [];
-    var dur = +s.duration_sec || 0;
-    if (dur >= 60) parts.push(Math.floor(dur / 60) + ' 分钟');
-    else if (dur > 0) parts.push(dur + ' 秒');
     if ((+s.total_sets || 0) > 0) parts.push(s.total_sets + ' 组');
     /* 与总结页 3193-3194 同一算法：该会话 source_ref 下的流水求和（含负数冲抵，不加绝对值）。 */
     var xp = (XP.ledgerOf(store, ctx.member_id, sessionId) || []).reduce(function (a, x) {
@@ -12227,6 +12282,10 @@
    */
   function weekBarHtml(done, goal) {
     var y = parseInt(goal, 10);
+    /* 22 轮：目标次数拿不到（profile 缺失 / 字段异常）时连细条一起不画。
+       weeklyStats 里 frequencyGoal 是 intOr(prof.frequency_goal, 3) —— 那个 3 是兜底占位值，
+       不是会员自己定的目标；拿它当分母就会显示「已完成 1 / 3 次」这种**编造出来的分母**。
+       没有可靠分母就不给进度条，也不给「x / y」。 */
     if (!(y > 0)) return '';
     var x = Math.max(0, Math.min(y, +done || 0));
     var pct = Math.round(x / y * 1000) / 10;
@@ -12244,10 +12303,24 @@
   function todayPreviewHtml(act) {
     if (act.kind !== 'resume' && act.kind !== 'start'
       && act.kind !== 'plan' && act.kind !== 'done') return '';
-    /* 决策 D：进行中只读显示已记组数（SES.setsOf 现成可读），零写库 */
-    var head = (act.kind === 'resume' && act.sessionId)
-      ? '<p class="m-tsum-note">已记 ' + SES.setsOf(store, act.sessionId).length + ' 组</p>'
-      : '';
+    /* 决策 D：进行中只读显示已记组数（SES.setsOf 现成可读），零写库。
+       22 轮补分母：光有「已记 3 组」看不出离今天的目标还差多少，所以带上计划总组数。
+
+       写法刻意是「已记 N 组 / 目标 M 组」而不是「已记 N / M 组」——
+       TL-26/27 与线上 U23/U24 四条断言锁的是字面「已记 N 组」，
+       把分母插进中间会把它们全部打成假红；追加一段既给了分母又不推翻既有验收。
+
+       分母只在会话快照真的给了目标组数时才出现：自由训练没有快照（planned_sets=0），
+       那时摆「/ 目标 0 组」是拿占位值充数，宁可只说「已记 N 组」。
+       超额（已记 > 目标）如实写，不封顶——那是用户真多练了，不是要藏起来的异常。 */
+    var head = '';
+    if (act.kind === 'resume' && act.sessionId) {
+      var doneN = SES.setsOf(store, act.sessionId).length;
+      var smR = SES.summary(store, ctx.member_id, act.sessionId) || {};
+      var planN = +smR.planned_sets || 0;
+      head = '<p class="m-tsum-note">已记 ' + doneN + ' 组'
+        + (planN > 0 ? ' / 目标 ' + planN + ' 组' : '') + '</p>';
+    }
     /* done（决策 B，15 轮做实）：不铺全量，只给淡化一行「今日 N 个动作」。
        N 必须来自**今天已完成会话里实际练过的动作**——用 rows.length 是错的：
        练完后 draft 背包已转 confirmed、计划项也可能没有，那会算出 0、整行消失，
@@ -12335,8 +12408,10 @@
           ? '<p class="m-hint">或者：<a href="' + sec.href + '">' + esc(sec.label) + '</a></p>'
           : '')
       /* 本周进度：文字 + 一条细进度条（18 轮）。仍不带第二个链接
-         （「任务与挑战在成长中心」挪去 #me / #growth），也不提成第二张卡。 */
-      + (p.onboarding_done === 'Y'
+         （「任务与挑战在成长中心」挪去 #me / #growth），也不提成第二张卡。
+         22 轮：分母不可靠（weekBarHtml 返回空 = 目标次数拿不到）时整行不显示，
+         宁可少一行，也不摆「已完成 1 / 3 次」这种用默认值凑出来的进度。 */
+      + (p.onboarding_done === 'Y' && weekBarHtml(w.completedCount, w.frequencyGoal)
         ? '<p class="m-hint">本周已完成 ' + w.completedCount + ' / ' + w.frequencyGoal + ' 次。'
           + weekBarHtml(w.completedCount, w.frequencyGoal) + '</p>' : '')
       + '</section>';
@@ -14575,6 +14650,34 @@
       persist(); render();
     });
 
+    /**
+     * 结算 + 跳总结页（22 轮抽出）。
+     * 正常的「结束并结算」与「重试保存成功后接着结算」走的是同一条路——
+     * 分成两处各写一份，迟早有一份会漏掉某个提示或某次 persist。
+     */
+    function settleAndGo(sessionId) {
+      var st = XP.settleSession(store, ctx.member_id, sessionId);
+      if (st.ok === false || st.settleFailed) {
+        /* 结算失败：会话已 completed 但没发奖，必须让用户看见并允许重试（05 §12） */
+        persist();
+        toast('本次结算未完成，请回到结算页点「重试结算」', 'err', 8000);
+        go('#summary/' + sessionId);
+        return;
+      }
+      /* 结算本身是幂等的（biz_key），但**落盘不是**：这里失败就是「XP 在内存里、
+         磁盘上没有」，刷新后流水会丢。提示照实说，重试入口就在本页。 */
+      if (!persist()) {
+        toast('训练已结算，但没能保存到本机：请点「重试结算」把这次写入本机'
+          + '（不会重复发放 XP）', 'err', 8000);
+      }
+      /* 练完了但一分没发：多半是今日经验已到上限。不提示的话，用户只会以为结算坏了。
+         这里只解释原因，不碰结算的发放逻辑与上限数值。 */
+      if (st.capped && !(+st.gained > 0)) {
+        toast('训练已结算，但今天的经验已经到上限了 —— 这次不计 XP，次日 0 点恢复', 'warn', 7000);
+      }
+      go('#summary/' + sessionId);
+    }
+
     var fin = $('btnFinish');
     if (fin) fin.addEventListener('click', function () {
       /*
@@ -14608,22 +14711,43 @@
         if (endMsg) { endMsg.className = 'm-hint m-err'; endMsg.textContent = rr.message || rr.reason; }
         return;
       }
-      persist();
-      var st = XP.settleSession(store, ctx.member_id, s.session_id);
-      if (st.ok === false || st.settleFailed) {
-        /* 结算失败：会话已 completed 但没发奖，必须让用户看见并允许重试（05 §12） */
-        persist();
-        toast('本次结算未完成，请回到结算页点「重试结算」', 'err', 8000);
-        go('#summary/' + s.session_id);
+      /*
+       * 22 轮审计发现的缺口：原先这里 persist() 的返回值没人看。
+       * complete 只改内存里的 m_sessions，写盘失败时——
+       *   内存：status=completed → 本周目标次数 +1、首页变「已完成」
+       *   磁盘：还是 in_progress → 刷新后整次训练退回进行中，次数也退回
+       * 也就是说「本周已完成 x/y」会短暂显示一个**本机并不存在**的训练。
+       *
+       * 这里与记组闸门取同一口径：没落盘就不往下走（不结算、不发 XP）。
+       * 但**不能 render()**：会话此刻已是 completed，pageWorkout(3035) 会把它直接跳去
+       * #summary，用户就被甩到一张「已结算」的页面上，而本机其实一条都没写进去。
+       * 所以就地改提示、停掉「结束并结算」、注入一个只做 persist 的「重试保存」。
+       */
+      if (!persist()) {
+        fin.disabled = true;
+        var em2 = $('wEndMsg');
+        if (em2) {
+          em2.className = 'm-hint m-err';
+          em2.textContent = '这次训练已经结束，但没能保存到本机：刷新后会退回「进行中」，'
+            + '也不会计入本周目标。请先点「重试保存」（保存成功前不会结算）。';
+          var rb = document.getElementById('btnRetryEndSave');
+          if (!rb) {
+            rb = document.createElement('button');
+            rb.id = 'btnRetryEndSave';
+            rb.className = 'm-btn m-btn-ghost';
+            rb.textContent = '重试保存';
+            rb.addEventListener('click', function () {
+              if (!persist()) { rb.textContent = '再试一次保存'; return; }
+              if (rb.parentNode) rb.parentNode.removeChild(rb);
+              fin.disabled = false;
+              settleAndGo(s.session_id);
+            });
+            em2.parentNode.insertBefore(rb, em2);
+          }
+        }
         return;
       }
-      persist();
-      /* 练完了但一分没发：多半是今日经验已到上限。不提示的话，用户只会以为结算坏了。
-         这里只解释原因，不碰结算的发放逻辑与上限数值。 */
-      if (st.capped && !(+st.gained > 0)) {
-        toast('训练已结算，但今天的经验已经到上限了 —— 这次不计 XP，次日 0 点恢复', 'warn', 7000);
-      }
-      go('#summary/' + s.session_id);
+      settleAndGo(s.session_id);
     });
 
     var pz = $('btnPause');
@@ -14660,6 +14784,7 @@
     var led = XP.ledgerOf(store, ctx.member_id, s.session_id);
     var total = led.reduce(function (a, x) { return a + (+x.points || 0); }, 0);
     var ov = XP.overview(store, ctx.member_id);
+    var weekNow = XP.weeklyStats(store, ctx.member_id, PLAN.mondayOf(today()));
     var recs = store.all('m_records').filter(function (x) { return x.session_id === s.session_id; });
 
     return ''
@@ -14699,6 +14824,24 @@
       + '<div class="m-btn-row"><button class="m-btn m-btn-sm" id="btnRetrySettle">重试结算</button></div>'
       + '</section>'
 
+      /* 第二层：本周目标进度（22 轮补）。
+         之前总结页只有「当前等级」里那句「连续 N 天」，周目标进度**只出现在首页**——
+         练完这一训最该回答的「本周还差几次」却要用户退回首页才看得到。
+         口径与首页完全同一个 weeklyStats（会话数，不是天数），不另起一套算法。
+         连续训练天数沿用下面「当前等级」里已有的那句，**不在这里重复摆一遍**——
+         同一个数字在两处出现，迟早会有一处忘记同步口径。 */
+      + (weekBarHtml(weekNow.completedCount, weekNow.frequencyGoal)
+        ? '<section class="m-card"><div class="m-card-h"><h2>本周目标进度</h2></div>'
+          + '<p class="m-p">本周已完成 <b>' + weekNow.completedCount + '</b> / '
+          + weekNow.frequencyGoal + ' 次。'
+          + weekBarHtml(weekNow.completedCount, weekNow.frequencyGoal) + '</p>'
+          + '<p class="m-hint">按「完成的训练次数」算，一天练两次算两次；'
+          + '连续训练天数按天算，是另一套口径，两者不互相推导。</p></section>'
+        : '')
+
+      /* 第三层：只在真的刷新了纪录时才出现（recs 来自 m_records，空就不渲染）。
+         探索点亮刻意不补——解锁事实已经落在 m_unlocks 并由成长中心的时间线统一呈现，
+         在结算页再摆一份等于给同一件事开第二个展示口，口径迟早分叉。 */
       + (recs.length
         ? '<section class="m-card"><div class="m-card-h"><h2>本次刷新纪录</h2></div>'
           + recs.map(function (x) {
@@ -14748,7 +14891,15 @@
     rs.addEventListener('click', function () {
       var st = XP.settleSession(store, ctx.member_id, r.id);
       if (st.ok === false || st.settleFailed) { toast('结算仍未成功：' + (st.message || st.reason), 'err', 6000); return; }
-      if (st.duplicate) { toast('这次训练已经结算过了，不会重复发放', 'ok'); return; }
+      if (st.duplicate) {
+        /* 22 轮：重复结算不只是「告诉你别点第二次」，它同时是**落盘的重试入口**——
+           结算成功后若那次 persist 失败过，XP 只在内存里，刷新就丢。
+           这里补一次 persist：settleSession 已经返回 duplicate，不会再发任何一笔，
+           所以这一步只会重写同一份数据，不会重复发放（CL-29d 有断言）。 */
+        if (persist()) toast('这次训练已经结算过了，不会重复发放（已重新写入本机）', 'ok');
+        else toast('这次训练已经结算过了，不会重复发放；但写入本机仍未成功，请再点一次', 'err', 6000);
+        return;
+      }
       persist();
       toast('结算完成，+' + st.gained + ' XP', 'ok');
       render();

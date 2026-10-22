@@ -475,6 +475,29 @@
     };
   }
 
+  /**
+   * 周目标次数的**唯一取值口**（23 轮方案 A）。
+   *
+   * 为什么单独抽一个函数：此前 `intOr(prof.frequency_goal, 3)` 散落在 weeklyStats / ensureWeekly
+   * 两处，而那个 3 是**编造出来的默认目标**——profile 行缺失时会拿它去判定「本周达没达标」，
+   * 进而发 XP_WEEK_TARGET、续连续周数、写 timeline。一个会员从未设定过的目标不该参与发奖。
+   *
+   * 取值约定（实测过，不猜）：
+   *   · 只接受整数 1–7（与 schema 的建议范围、档案页校验一致，见 fxp-member-schema.js:73）；
+   *   · 0 / 负数 / 8 以上 / 非数字 / profile 整行缺失 → 一律 **0**，0 的含义是「没有可信目标」，
+   *     **绝不静默修正成 1 或 3** —— 悄悄替会员定目标是另一种谎报；
+   *   · 下游（settleWeek / evaluateWeekly / ensureWeekly）在拿到 0 时必须**不判定、不发奖、不建挑战**。
+   *
+   * 为什么要容忍 0 这种值存在：schema 的 `I('frequency_goal',1,[1,7])` 走的是 warnRange，
+   * 只告警不拒收（fxp-member-schema.js:489-490），所以 0 / -1 / 9 是**能进库**的；
+   * CSV 导入、手工改过的快照、程序化 update 都可能写出这些值。本轮不扩展为 schema 重构，
+   * 只在取值处收口。UI 与注册路径本身都有 1–7 校验，正常用户不受影响。
+   */
+  function frequencyGoalOf(prof) {
+    var n = intOr(prof && prof.frequency_goal, 0);
+    return (n >= 1 && n <= 7) ? n : 0;
+  }
+
   /** 单周派生统计（供周挑战判定） */
   function weeklyStats(store, memberId, weekStart, opt) {
     opt = opt || {};
@@ -514,7 +537,8 @@
       dayCount: Object.keys(days).length,
       prCount: prs.length,
       planRate: rateN ? Math.round(rateSum / rateN * 10) / 10 : 0,
-      frequencyGoal: intOr(prof.frequency_goal, 3)
+      /* 23 轮方案 A：不再用 intOr(..., 3) 编造默认目标；拿不到可信目标就返回 0（含义见 frequencyGoalOf）。 */
+      frequencyGoal: frequencyGoalOf(prof)
     };
   }
 
@@ -701,7 +725,7 @@
     opt = opt || {};
     var ws = weekStart || mondayOf(todayStr());
     var prof = store.find('m_profiles', memberId) || {};
-    var freq = intOr(prof.frequency_goal, 3);
+    var freq = frequencyGoalOf(prof);
 
     var scored = WEEKLY_POOL.map(function (t) {
       return { t: t, s: hashStr(memberId + ws + t.code) % 1000 };
@@ -715,6 +739,11 @@
       if (t.base === 'frequency_goal') target = t.mul ? freq * t.mul : freq;
       else if (t.base === 'min_frequency') target = Math.min(freq, t.const);
       else target = t.const;
+      /* 23 轮方案 A：目标值由 frequency_goal 派生、而目标不可信（freq=0）时**不建这条挑战**。
+         否则 weekly_count 会建出 target=0 的挑战，evaluateWeekly 里 0>=0 立刻判达标 → 白送
+         XP_WEEKLY_CHALLENGE（weekly_days 同理：min(0,3)=0）。宁可这周少一条挑战，
+         也不能让一条「什么都不做就完成」的任务混进任务列表。 */
+      if (freq === 0 && (t.base === 'frequency_goal' || t.base === 'min_frequency')) continue;
       var exists = store.all('m_challenges').some(function (c) {
         return c.member_id === memberId && c.period_key === ws
           && c.challenge_code === t.code && c.period_type === 'weekly';
@@ -771,7 +800,10 @@
     for (var i = 0; i < rows.length; i++) {
       var c = rows[i];
       var v = weeklyValue(c.challenge_code, w);
-      var hit = v >= numOr(c.target_value, 1);
+      /* 23 轮方案 A：目标值 ≤0 视为「这条挑战没有有效目标」，一律判不达标。
+         原先 v >= numOr(target, 1) 在 target=0 时恒真，任何人都「完成」——
+         存量里若有历史建出来的 target=0 挑战，这里也会挡住，不会补发。 */
+      var hit = numOr(c.target_value, 0) > 0 && v >= numOr(c.target_value, 1);
       var patch = { current_value: v };
       if (hit && c.status === 'open') {
         patch.status = 'done';
@@ -806,6 +838,22 @@
     }
 
     var w = weeklyStats(store, memberId, ws, opt);
+    /*
+     * 23 轮方案 A：目标不可信时不判定、不写表、直接返回。
+     *
+     * 为什么必须拦在这里：`hit = completedCount >= frequencyGoal` 在 goal=0 时**恒真**
+     * （0 次训练也 ≥ 0），于是每周都发 50 XP_WEEK_TARGET、连续周数 +1、还写一条 timeline。
+     * 实测（改动前）：frequency_goal=0、0 次训练 → hit=true / gained=50 / 流水 2 条。
+     * 这属于「凭一个不存在或非法的数据发奖」，必须停掉。
+     *
+     * 刻意**不写 last_settled_week**：本轮压根没做判定，下周仍应正常判定；
+     * 重复发放由 grant 的 biz_key 幂等兜住，不需要靠 last_settled_week 挡。
+     * 返回结构与既有的 'already_settled' 保持同形（ok / skipped / reason / weekStart），
+     * 调用方不需要新增分支。
+     */
+    if (!(w.frequencyGoal > 0)) {
+      return { ok: true, skipped: true, reason: 'no_goal', weekStart: ws, frequencyGoal: 0 };
+    }
     var hit = w.completedCount >= w.frequencyGoal;
     var now = opt.now || nowStr();
     var prev = intOr(row && row.weekly_goal_streak, 0);
