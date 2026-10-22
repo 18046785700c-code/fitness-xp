@@ -1322,6 +1322,25 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
   transition: width var(--m-ease-slow);
 }
 
+/* 训练日历（24 轮阶段 3）：7 列网格，只标真实完成的日期。
+   刻意不做成图表、不引库；训练日比普通日子只多一层紫底 + 右下角次数，不抢列表的戏。 */
+.m-cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; margin-top: 10px; }
+.m-cal-h {
+  font-size: var(--m-fs-xs); color: var(--m-sub-ink);
+  text-align: center; padding: 2px 0;
+}
+.m-cal-d {
+  position: relative; display: flex; align-items: center; justify-content: center;
+  height: 34px; border-radius: 8px; border: 1px solid var(--m-border);
+  background: #fff; font-size: var(--m-fs-sm); color: var(--m-sub-ink);
+}
+.m-cal-empty { border: 0; background: transparent; }
+.m-cal-d-on { background: #F3EFFB; border-color: var(--m-purple); color: var(--m-ink); font-weight: 600; }
+.m-cal-d-on > i {
+  position: absolute; right: 4px; bottom: 1px;
+  font-style: normal; font-size: 10px; color: var(--m-purple);
+}
+
 .m-airow { margin-top: 10px; }
 .m-airow b { display: block; font-size: var(--m-fs-sm); margin-bottom: 4px; }
 .m-ailist { margin: 0; padding-left: 18px; font-size: var(--m-fs-sm); color: var(--m-sub); }
@@ -8379,6 +8398,219 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
   }
 
   /**
+   * lastSessionItems —— 「重复上次训练」要复制的内容（24 轮阶段 1）。
+   *
+   * 只输出**内容**（动作 / 组数 / 次数 / 重量），**不复制那次训练的完成状态、
+   * 会话 ID、成绩记录或 XP 结算结果** —— 那些东西一旦被复制，历史就成了假的。
+   * 纯读：不写任何表，调用它不会产生会话。
+   *
+   * 取值口径（用户 2026-10-22 批准，顺序不可改）：
+   *   组数 = 上次**实际完成**的组数（不是计划组数）
+   *   次数 = 上次**最后一组**的实际次数
+   *   重量 = 上次**最好一组**的重量（best = 重量最大的那组，summary 已实现，见 :607）
+   *   自重动作（最好一组重量为 0 / 空）→ 重量留 null，不填 0 也不编一个数
+   *   一律不自动递增重量 / 次数 / 组数 —— 加不加由用户在训练页逐组决定
+   *
+   * 「上次」= 最近一次 **completed** 会话。abandoned 不参与：
+   * 放弃的训练本身就是用户不满意的那次，拿它当模板是反向引导。
+   * 排序与 lastSetsFor 同口径（日期 → 结束时刻 → 会话 ID 降序），边界见 :549-560。
+   *
+   * 拿不到就少给，**不用计划值伪造实际值**：
+   *   计划排了但一组没练（actual_sets=0）→ 该动作整条不复制；
+   *   取不到实际次数 → 同样跳过。宁可少一个动作，也不给用户一个假的目标。
+   */
+  function lastSessionItems(store, memberId, opt) {
+    opt = opt || {};
+    if (!memberId) return { ok: false, reason: 'no_actor', sessionId: '', date: '', items: [] };
+    var mine = store.all('m_sessions').filter(function (s) {
+      return s.member_id === memberId && s.status === 'completed';
+    });
+    if (opt.beforeSessionId) {
+      mine = mine.filter(function (s) { return s.session_id !== opt.beforeSessionId; });
+    }
+    mine.sort(function (a, b) {
+      var d = String(b.session_date).localeCompare(String(a.session_date));
+      if (d) return d;
+      var ta = String(a.ended_at || a.started_at || '');
+      var tb = String(b.ended_at || b.started_at || '');
+      if (ta !== tb) return ta < tb ? 1 : -1;
+      return String(b.session_id).localeCompare(String(a.session_id));
+    });
+    if (!mine.length) return { ok: true, sessionId: '', date: '', items: [] };
+
+    var last = mine[0];
+    var sm = summary(store, memberId, last.session_id);
+    var rows = (sm && sm.per_exercise) || [];
+    var items = [];
+    rows.forEach(function (r) {
+      if (intOr(r.actual_sets, 0) <= 0) return;      /* 排了没练 → 不复制 */
+      var sets = setsOf(store, last.session_id).filter(function (x) {
+        return x.exercise_id === r.exercise_id;
+      });
+      var tail = sets.length ? sets[sets.length - 1] : null;  /* setsOf 已按 sequence 升序 */
+      var reps = tail ? intOr(tail.reps, 0) : 0;
+      if (!(reps > 0)) return;                       /* 拿不到实际次数 → 不复制 */
+      items.push({
+        exercise_id: r.exercise_id,
+        name: r.name || '',
+        target_sets: intOr(r.actual_sets, 0),
+        target_reps: reps,
+        /* null = 自重（与 buildSnapshot 同约定）；绝不把 0 当成一个真重量写进去 */
+        target_weight: numOr(r.top_weight, 0) > 0 ? numOr(r.top_weight, 0) : null
+      });
+    });
+    return { ok: true, sessionId: last.session_id, date: last.session_date, items: items };
+  }
+
+  /**
+   * exerciseTrend —— 单个动作的历史趋势（24 轮阶段 2）。
+   *
+   * 口径（审计结论 + 既有约定，不新造评分算法）：
+   *   1 归属日期用 **m_sessions.session_date**，绝不用 m_sets.logged_at ——
+   *     logged_at 是写库那一刻的真实钟点（schema.js:273 的 AT），不是训练发生的时间；
+   *     24 轮探针实测：把会话日期注入成 10-05/10-12/10-19，logged_at 全是当天 10-22。
+   *     按开始日归集也与既有统计（周目标、跨午夜）同一口径。
+   *   2 只统计 **completed** 会话。放弃的、进行中的组不算 —— 否则"放弃那次"
+   *     会污染最好成绩，趋势看起来像进步其实是脏数据。
+   *   3 同一天练两次 → **合并成一个点**（组数累加、最好一组取两次里更大的），
+   *     否则一个日期出现两个点，看起来像练了两天。
+   *   4 「最好一组」= 重量最大的那组，与 summary() 的 best（:607）完全同一个实现；
+   *     次数取**同一组**的次数（不是当天最多次数），两个口径各取各的但不混。
+   *     自重动作重量为 0 → top_weight = 0，由展示层决定怎么画，这里不替它编数。
+   *
+   * 纯读：不写任何表。返回按日期**倒序**（最近在前），limit 默认 8。
+   */
+  function exerciseTrend(store, memberId, exerciseId, opt) {
+    opt = opt || {};
+    if (!memberId || !exerciseId) return { ok: false, reason: 'bad_input', exerciseId: exerciseId, points: [] };
+    var cur = store.find('m_exercises', exerciseId);
+    var curVer = cur ? intOr(cur.version, 1) : 0;
+
+    var byDate = {};
+    store.all('m_sessions').forEach(function (s) {
+      if (s.member_id !== memberId || s.status !== 'completed') return;
+      var rows = setsOf(store, s.session_id).filter(function (r) { return r.exercise_id === exerciseId; });
+      if (!rows.length) return;
+      var k = String(s.session_date);
+      if (!byDate[k]) byDate[k] = { date: k, ids: [], rows: [] };
+      byDate[k].ids.push(s.session_id);
+      byDate[k].rows = byDate[k].rows.concat(rows);
+    });
+
+    var points = Object.keys(byDate).sort().map(function (k) {
+      var g = byDate[k];
+      var best = null, vol = 0;
+      g.rows.forEach(function (r) {
+        vol += numOr(r.weight) * intOr(r.reps);
+        if (!best || numOr(r.weight) > numOr(best.weight)) best = r;
+      });
+      g.ids.sort();
+      return {
+        date: k,
+        session_id: g.ids[g.ids.length - 1],
+        sessions: g.ids.length,
+        sets: g.rows.length,
+        top_weight: best ? numOr(best.weight) : 0,
+        top_reps: best ? intOr(best.reps) : 0,
+        volume: round1(vol),
+        /* 动作内容版本变过 → 前后不完全可比，展示层要提示（与 20 轮预填的版本守卫同约定） */
+        version_changed: curVer > 0 && !!best && intOr(best.exercise_version, 1) !== curVer
+      };
+    });
+    points.sort(function (a, b) { return String(b.date).localeCompare(String(a.date)); });
+    return {
+      ok: true,
+      exerciseId: exerciseId,
+      points: points.slice(0, intOr(opt.limit, 8))
+    };
+  }
+
+  /* ---------------------------------------------------------------- 日历（24 轮阶段 3） */
+
+  /** 日期 + N 天。本模块内只用于生成日历区间；与 xp.js 的 dateAdd 同算法，不引入新依赖 */
+  function addDays(dateStr, n) {
+    var m = String(dateStr).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) return '';
+    var d = new Date(+m[1], +m[2] - 1, +m[3]);
+    d.setDate(d.getDate() + n);
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+  }
+  /** 星期几：1=周一 … 7=周日（与 m_plan_items.day_of_week 同一编码） */
+  function weekdayOf(dateStr) {
+    var m = String(dateStr).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) return 0;
+    var w = new Date(+m[1], +m[2] - 1, +m[3]).getDay();
+    return w === 0 ? 7 : w;
+  }
+  /** 某日期所在月的首尾（'YYYY-MM-DD' → {from,to}） */
+  function monthRange(dateStr) {
+    var m = String(dateStr).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) return null;
+    var lastDay = new Date(+m[1], +m[2], 0);   /* 下月第 0 天 = 本月最后一天 */
+    return {
+      from: m[1] + '-' + m[2] + '-01',
+      to: lastDay.getFullYear() + '-' + pad(lastDay.getMonth() + 1) + '-' + pad(lastDay.getDate())
+    };
+  }
+
+  /**
+   * calendar —— 训练日历（24 轮阶段 3）。
+   *
+   * **只标真实完成的训练**：status === 'completed' 且按 session_date 落格。
+   * 计划日（m_plan_items.day_of_week）不参与——排了没练的日子不该看起来像练过；
+   * 放弃（abandoned）与进行中（in_progress）也不算，理由同 exerciseTrend。
+   * 归属日期仍用 session_date（开始日），与既有统计同一口径。
+   *
+   * 返回区间内**每一天**（含没练的日子），让展示层能画完整的月历网格，
+   * 而不是只给有训练的那几天——否则用户看不出"这个月哪些天是空的"。
+   * 纯读：不写任何表。
+   */
+  function calendar(store, memberId, opt) {
+    opt = opt || {};
+    if (!memberId) return { ok: false, reason: 'no_actor', from: '', to: '', days: [] };
+    var from = opt.from, to = opt.to;
+    if (!from || !to) {
+      var mr = monthRange(opt.month ? String(opt.month) + '-01' : todayStr());
+      if (!mr) return { ok: false, reason: 'bad_date', from: '', to: '', days: [] };
+      from = mr.from; to = mr.to;
+    }
+    var agg = {};
+    store.all('m_sessions').forEach(function (s) {
+      if (s.member_id !== memberId || s.status !== 'completed') return;
+      var k = String(s.session_date);
+      if (k < from || k > to) return;
+      if (!agg[k]) agg[k] = { sessions: 0, sets: 0, volume: 0 };
+      agg[k].sessions++;
+      var rows = setsOf(store, s.session_id);
+      agg[k].sets += rows.length;
+      rows.forEach(function (r) { agg[k].volume += numOr(r.weight) * intOr(r.reps); });
+    });
+
+    var days = [], cur = from, guard = 0;
+    while (cur && String(cur) <= String(to) && guard < 400) {
+      var a = agg[cur] || { sessions: 0, sets: 0, volume: 0 };
+      days.push({
+        date: cur,
+        weekday: weekdayOf(cur),
+        sessions: a.sessions,
+        sets: a.sets,
+        volume: round1(a.volume)
+      });
+      cur = addDays(cur, 1);
+      guard++;
+    }
+    var trained = days.filter(function (d) { return d.sessions > 0; });
+    return {
+      ok: true,
+      from: from,
+      to: to,
+      days: days,
+      trainedDays: trained.length,
+      totalSessions: trained.reduce(function (a, d) { return a + d.sessions; }, 0)
+    };
+  }
+
+  /**
    * summary(store, memberId, sessionId) —— 结算卡需要的全部数字（02 §E.4）。
    * 刻意只从 m_sessions / m_sets / plan_snapshot 现算，不做任何缓存，
    * 保证「结算卡上的每一项都能被重新算出来」这条硬要求成立。
@@ -8598,6 +8830,9 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
     isLive: isLive,
     setsOf: setsOf,
     lastSetsFor: lastSetsFor,
+    lastSessionItems: lastSessionItems,
+    exerciseTrend: exerciseTrend,
+    calendar: calendar,
     summary: summary,
     history: history,
     netSeconds: netSeconds,
@@ -13852,7 +14087,38 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
           + '用今天的计划内容开始（' + items.length + ' 个动作）</button></div>'
         : '<p class="m-hint">今天没有计划，可以先从「直接开始」练起，'
           + '或先去 <a href="#plan">计划页</a> 排一下本周安排。</p>')
+      + repeatCardHtml()
       + '<div class="m-hint" id="qMsg"></div></section>';
+  }
+
+  /**
+   * 「按上次训练再来一次」（24 轮阶段 1）。
+   *
+   * 为什么先把内容摊开再给按钮：重复训练**必须**由用户确认后才能开始——
+   * 一个按钮默默复制上次的一切，用户点完才发现动作不对，等于替他做了决定。
+   * 所以这里逐条列出上次的实际成绩，看完再点。
+   *
+   * 只复制内容（SES.lastSessionItems 已在领域层保证），不复制那次的状态/ID/XP；
+   * 卡片里也照实说明，避免用户以为"再来一次"会把上次成绩搬过来。
+   * 纯读：渲染这一卡不写库，开练只发生在按钮点击之后。
+   */
+  function repeatCardHtml() {
+    if (!SES.lastSessionItems) return '';
+    var rep = SES.lastSessionItems(store, ctx.member_id);
+    if (!rep || !rep.items || !rep.items.length) return '';
+    var rows = rep.items.map(function (x) {
+      return '<div class="m-rowitem"><div class="m-rowitem-t">' + esc(x.name || x.exercise_id) + '</div>'
+        + '<div class="m-rowitem-s">' + x.target_sets + ' 组 × ' + x.target_reps + ' 次'
+        + (x.target_weight ? ' · ' + x.target_weight + 'kg' : ' · 自重') + '</div></div>';
+    }).join('');
+    return '<section class="m-card"><div class="m-card-h"><h2>按上次训练再来一次</h2></div>'
+      + '<p class="m-p">' + esc(rep.date) + '那次练了 ' + rep.items.length + ' 个动作。'
+      + '下面是那次<b>实际做到</b的成绩，照抄一遍就能开练，进去后还能逐组改。</p>'
+      + rows
+      + '<div class="m-btn-row"><button class="m-btn" id="btnQuickRepeat">'
+      + '按这个开始（' + rep.items.length + ' 个动作）</button></div>'
+      + '<p class="m-hint">只复制动作、组数、次数和重量，不复制那次训练的状态与成绩，'
+      + '也不会重复结算 XP——这是一次全新的训练。</p></section>';
   }
 
   function bindQuick() {
@@ -13860,6 +14126,15 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
     if (a) a.addEventListener('click', function () { startQuickSession([]); });
     var b = $('btnQuickPlan');
     if (b) b.addEventListener('click', function () { startQuickSession(todayPlanItems()); });
+    /* 阶段 1：重复上次。内容在渲染时已摊给用户看过，这里只负责"确认后开练"。 */
+    var c = $('btnQuickRepeat');
+    if (c) {
+      c.addEventListener('click', function () {
+        var rep = SES.lastSessionItems(store, ctx.member_id);
+        if (!rep || !rep.items || !rep.items.length) { say('没有可以重复的上次训练。'); return; }
+        startQuickSession(rep.items);
+      });
+    }
   }
 
   /** 建会话 → 落盘 → 跳执行页。失败只提示，不跳转。 */
@@ -14549,6 +14824,44 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
 
   /* ---------------------------------------------------------------- 页面：动作详情 */
 
+  /**
+   * 动作详情页的「你练过这个动作」（24 轮阶段 2）。
+   *
+   * 只读 m_sets + m_sessions 现算（SES.exerciseTrend），不缓存、不写库。
+   * 刻意不画折线图：沿用成长中心近 8 周趋势那套 CSS 条（.m-bar），
+   * 零依赖、零构建，符合小程序的约束；条长只表达"相对变多还是变少"。
+   *
+   * 两处刻意留白，避免把话说满：
+   *   1 纯自重动作（最好一组重量都是 0）**不画条** —— 没有重量可比，
+   *     画一排等长的 0 只会让人以为"没变化"。只列组数与次数。
+   *   2 动作内容版本变过 → 该点标一句"动作内容改过"，提示前后不完全可比。
+   */
+  function trendCardHtml(ex) {
+    if (!SES.exerciseTrend) return '';
+    var tr = SES.exerciseTrend(store, ctx.member_id, ex.exercise_id, { limit: 8 });
+    if (!tr.ok || !tr.points.length) return '';
+    var maxW = 0;
+    tr.points.forEach(function (p) { if (p.top_weight > maxW) maxW = p.top_weight; });
+    var rows = tr.points.map(function (p) {
+      var pct = maxW > 0 ? Math.round(p.top_weight / maxW * 100) : 0;
+      return '<div class="m-tlitem">'
+        + '<div class="m-trendrow-h"><span class="m-tl-t">' + esc(p.date)
+        + (p.sessions > 1 ? '（当天 ' + p.sessions + ' 次）' : '') + '</span>'
+        + '<span class="m-task-v">' + p.sets + ' 组 · ' + (p.top_weight > 0
+          ? p.top_weight + 'kg × ' + p.top_reps + ' 次' : '自重 × ' + p.top_reps + ' 次') + '</span></div>'
+        + (maxW > 0 ? '<div class="m-bar"><i style="width:' + pct + '%"></i></div>' : '')
+        + (p.version_changed ? '<div class="m-tl-s">这个动作的内容改过版，前后不完全可比</div>' : '')
+        + '</div>';
+    }).join('');
+    return '<section class="m-card"><div class="m-card-h"><h2>你练过这个动作</h2>'
+      + '<span class="m-pill">近 ' + tr.points.length + ' 次</span></div>'
+      + rows
+      + '<p class="m-hint">按训练日期归集，只算完成的训练（放弃的不算）；'
+      + '「最好一组」= 那次里重量最大的一组，次数是同一组的次数。'
+      + (maxW > 0 ? '条长是相对你最好的那一组。' : '自重动作没有重量可比，这里只看组数和次数。')
+      + '中途隔了很久也正常，不是退步。</p></section>';
+  }
+
   function pageExercise(r) {
     var ex = store.find('m_exercises', r.id);
     if (!ex) {
@@ -14608,6 +14921,8 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
       + '</dl></section>'
 
       + aiSection(ex)
+
+      + trendCardHtml(ex)
 
       + '<section class="m-card">'
       + '<div class="m-card-h"><h2>执行步骤</h2></div>'
@@ -16176,11 +16491,16 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
       + sumCell('训练时长', Math.floor(sm.duration_sec / 60) + ' 分 ' + (sm.duration_sec % 60) + ' 秒')
       + sumCell('动作数', sm.actual_exercise_count + ' / ' + sm.planned_exercise_count)
       + sumCell('完成组数', sm.total_sets + ' / ' + sm.planned_sets)
-      + sumCell('总容量', sm.total_volume + ' kg')
+      + sumCell('总容量', sm.total_volume + ' kg·次')
       + sumCell('计划完成度', sm.completion_rate + '%')
       + sumCell('训练感受', feelingName(sm.feeling))
       + '</div>'
-      + '<p class="m-hint">总容量 = 每一组「重量 × 次数」再求和；自重动作不计重量。</p>'
+      /* 24 轮阶段 0：单位从 kg 改成 kg·次（容量 = Σ(重量×次数)，不是重量本身），
+         并把这个口径的**局限**当场说清——自重动作重量按 0 计，
+         只练自重时总容量就是 0，那不是"没练"，是这个口径量不出自重的工作量。
+         算法与发奖一律不动（weekly_volume 挑战吃的就是这个 volume）。 */
+      + '<p class="m-hint">总容量 = 每一组「重量 × 次数」再求和，单位是 kg·次。'
+      + '自重动作重量按 0 计，所以只练自重时总容量会是 0——不代表没练，是这个口径量不出自重的工作量。</p>'
       + '</section>'
 
       + (sm.per_exercise.length
@@ -16188,7 +16508,7 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
           + sm.per_exercise.map(function (x) {
             return '<div class="m-rowitem"><div class="m-rowitem-t">' + esc(x.name)
               + ' <em>' + x.planned_sets + ' → ' + x.actual_sets + ' 组</em></div>'
-              + '<div class="m-rowitem-s">' + x.volume + ' kg</div></div>';
+              + '<div class="m-rowitem-s">' + x.volume + ' kg·次</div></div>';
           }).join('') + '</section>'
         : '')
 
@@ -16290,6 +16610,43 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
 
   /* ---------------------------------------------------------------- 页面：训练历史 #history / #session/:id */
 
+  /**
+   * 训练日历（24 轮阶段 3）：只标**真的完成**的训练日期。
+   *
+   * 三条刻意的选择：
+   *   1 计划日不参与 —— m_plan_items.day_of_week 是"打算练"，画进日历等于把打算说成事实；
+   *   2 放弃的与进行中的也不算 —— 只认 completed；
+   *   3 返回整月每一天（含空格子），看得出哪些天是空的；只给有训练的那几天，
+   *     用户反而看不出"这个月漏了几天"。
+   * 纯读：SES.calendar 不写库，渲染这一卡也不写库。
+   */
+  function calendarHtml() {
+    if (!SES.calendar) return '';
+    var cal = SES.calendar(store, ctx.member_id, {});
+    /* 一次都没练过就不摆空月历——一排空格子没有任何信息，只是噪音 */
+    if (!cal.ok || !cal.trainedDays) return '';
+    var head = ['一', '二', '三', '四', '五', '六', '日'].map(function (x) {
+      return '<span class="m-cal-h">' + x + '</span>';
+    }).join('');
+    var cells = '';
+    /* 月历从周一开始：1 号前面补空格子（weekday 1=周一） */
+    for (var i = 1; i < cal.days[0].weekday; i++) {
+      cells += '<span class="m-cal-d m-cal-empty"></span>';
+    }
+    cal.days.forEach(function (d) {
+      var n = String(d.date).slice(8);
+      cells += d.sessions > 0
+        ? '<span class="m-cal-d m-cal-d-on" title="' + esc(d.date) + '：' + d.sessions + ' 次 · '
+          + d.sets + ' 组">' + n + '<i>' + d.sessions + '</i></span>'
+        : '<span class="m-cal-d">' + n + '</span>';
+    });
+    return '<section class="m-card"><div class="m-card-h"><h2>本月训练日历</h2>'
+      + '<span class="m-pill">已练 ' + cal.trainedDays + ' 天</span></div>'
+      + '<div class="m-cal">' + head + cells + '</div>'
+      + '<p class="m-hint">只标真的完成的训练；计划里排了但没练的日子不算，放弃的也不算。'
+      + '格子右下角的数字是当天完成的训练次数。</p></section>';
+  }
+
   function pageHistory() {
     var h = SES.history(store, ctx.member_id, { pageSize: 50 });
     var w = XP.weeklyStats(store, ctx.member_id, PLAN.mondayOf(today()));
@@ -16297,13 +16654,15 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
       + '<section class="m-card m-card-blue"><div class="m-card-h"><h2>训练历史</h2>'
       + '<span class="m-pill">共 ' + h.total + ' 次</span></div>'
       + '<p class="m-p">本周已完成 ' + w.completedCount + ' / ' + w.frequencyGoal + ' 次，'
-      + '总容量 ' + w.volume + ' kg。</p></section>'
+      + '总容量 ' + w.volume + ' kg·次。</p>'
+      + '<p class="m-hint">容量 = Σ（重量 × 次数）；自重动作重量按 0 计，只练自重时这里会是 0。</p></section>'
+      + calendarHtml()
       + (h.items.length
         ? '<section class="m-card">' + h.items.map(function (x) {
           return '<a class="m-hist" href="#session/' + esc(x.session_id) + '">'
             + '<div class="m-hist-d">' + esc(x.session_date) + '</div>'
             + '<div class="m-hist-m">' + Math.floor(x.duration_sec / 60) + ' 分钟 · '
-            + x.exercise_count + ' 个动作 · ' + x.total_sets + ' 组 · ' + x.total_volume + ' kg</div>'
+            + x.exercise_count + ' 个动作 · ' + x.total_sets + ' 组 · ' + x.total_volume + ' kg·次</div>'
             + '<div class="m-hist-f">' + feelingName(x.feeling) + '</div></a>';
         }).join('') + '</section>'
         : '<section class="m-card"><p class="m-p">还没有完成过训练。</p>'
@@ -16348,7 +16707,7 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
       + sumCell('时长', Math.floor(sm.duration_sec / 60) + ' 分')
       + sumCell('动作', sm.actual_exercise_count + ' 个')
       + sumCell('组数', sm.total_sets + ' 组')
-      + sumCell('容量', sm.total_volume + ' kg')
+      + sumCell('容量', sm.total_volume + ' kg·次')
       + sumCell('完成度', sm.completion_rate + '%')
       + sumCell('感受', feelingName(sm.feeling))
       + '</div></section>'
@@ -16549,7 +16908,7 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
         + '<div class="m-trendrow-h"><span class="m-tl-t">' + esc(md) + ' 那一周</span>'
         + '<span class="m-task-v">' + w.completed + ' 次 · ' + w.sets + ' 组</span></div>'
         + '<div class="m-bar"><i style="width:' + pct + '%"></i></div>'
-        + '<div class="m-tl-s">' + Math.round(w.volume) + ' kg'
+        + '<div class="m-tl-s">' + Math.round(w.volume) + ' kg·次'
         /* 完成率只在那一周真的排了计划时才显示：没排计划的周 rate 也是 0，
            显示成「完成率 0%」会把「没安排」说成「全没做」。 */
         + (w.plan_rate > 0 ? ' · 计划完成 ' + w.plan_rate + '%' : '')
@@ -16560,7 +16919,8 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
     return '<section class="m-card"><div class="m-card-h"><h2>近 8 周趋势</h2></div>'
       + body
       + '<p class="m-hint">条长是这一周的总容量（重量×次数）相对这 8 周里最高那一周的比例，'
-      + '只看相对变化，不跟别人比。中途有周是空的也正常，不是退步。</p>'
+      + '只看相对变化，不跟别人比。中途有周是空的也正常，不是退步。'
+      + '自重动作重量按 0 计，只练自重时条长会一直是 0。</p>'
       + '</section>';
   }
 

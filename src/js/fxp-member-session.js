@@ -578,6 +578,219 @@
   }
 
   /**
+   * lastSessionItems —— 「重复上次训练」要复制的内容（24 轮阶段 1）。
+   *
+   * 只输出**内容**（动作 / 组数 / 次数 / 重量），**不复制那次训练的完成状态、
+   * 会话 ID、成绩记录或 XP 结算结果** —— 那些东西一旦被复制，历史就成了假的。
+   * 纯读：不写任何表，调用它不会产生会话。
+   *
+   * 取值口径（用户 2026-10-22 批准，顺序不可改）：
+   *   组数 = 上次**实际完成**的组数（不是计划组数）
+   *   次数 = 上次**最后一组**的实际次数
+   *   重量 = 上次**最好一组**的重量（best = 重量最大的那组，summary 已实现，见 :607）
+   *   自重动作（最好一组重量为 0 / 空）→ 重量留 null，不填 0 也不编一个数
+   *   一律不自动递增重量 / 次数 / 组数 —— 加不加由用户在训练页逐组决定
+   *
+   * 「上次」= 最近一次 **completed** 会话。abandoned 不参与：
+   * 放弃的训练本身就是用户不满意的那次，拿它当模板是反向引导。
+   * 排序与 lastSetsFor 同口径（日期 → 结束时刻 → 会话 ID 降序），边界见 :549-560。
+   *
+   * 拿不到就少给，**不用计划值伪造实际值**：
+   *   计划排了但一组没练（actual_sets=0）→ 该动作整条不复制；
+   *   取不到实际次数 → 同样跳过。宁可少一个动作，也不给用户一个假的目标。
+   */
+  function lastSessionItems(store, memberId, opt) {
+    opt = opt || {};
+    if (!memberId) return { ok: false, reason: 'no_actor', sessionId: '', date: '', items: [] };
+    var mine = store.all('m_sessions').filter(function (s) {
+      return s.member_id === memberId && s.status === 'completed';
+    });
+    if (opt.beforeSessionId) {
+      mine = mine.filter(function (s) { return s.session_id !== opt.beforeSessionId; });
+    }
+    mine.sort(function (a, b) {
+      var d = String(b.session_date).localeCompare(String(a.session_date));
+      if (d) return d;
+      var ta = String(a.ended_at || a.started_at || '');
+      var tb = String(b.ended_at || b.started_at || '');
+      if (ta !== tb) return ta < tb ? 1 : -1;
+      return String(b.session_id).localeCompare(String(a.session_id));
+    });
+    if (!mine.length) return { ok: true, sessionId: '', date: '', items: [] };
+
+    var last = mine[0];
+    var sm = summary(store, memberId, last.session_id);
+    var rows = (sm && sm.per_exercise) || [];
+    var items = [];
+    rows.forEach(function (r) {
+      if (intOr(r.actual_sets, 0) <= 0) return;      /* 排了没练 → 不复制 */
+      var sets = setsOf(store, last.session_id).filter(function (x) {
+        return x.exercise_id === r.exercise_id;
+      });
+      var tail = sets.length ? sets[sets.length - 1] : null;  /* setsOf 已按 sequence 升序 */
+      var reps = tail ? intOr(tail.reps, 0) : 0;
+      if (!(reps > 0)) return;                       /* 拿不到实际次数 → 不复制 */
+      items.push({
+        exercise_id: r.exercise_id,
+        name: r.name || '',
+        target_sets: intOr(r.actual_sets, 0),
+        target_reps: reps,
+        /* null = 自重（与 buildSnapshot 同约定）；绝不把 0 当成一个真重量写进去 */
+        target_weight: numOr(r.top_weight, 0) > 0 ? numOr(r.top_weight, 0) : null
+      });
+    });
+    return { ok: true, sessionId: last.session_id, date: last.session_date, items: items };
+  }
+
+  /**
+   * exerciseTrend —— 单个动作的历史趋势（24 轮阶段 2）。
+   *
+   * 口径（审计结论 + 既有约定，不新造评分算法）：
+   *   1 归属日期用 **m_sessions.session_date**，绝不用 m_sets.logged_at ——
+   *     logged_at 是写库那一刻的真实钟点（schema.js:273 的 AT），不是训练发生的时间；
+   *     24 轮探针实测：把会话日期注入成 10-05/10-12/10-19，logged_at 全是当天 10-22。
+   *     按开始日归集也与既有统计（周目标、跨午夜）同一口径。
+   *   2 只统计 **completed** 会话。放弃的、进行中的组不算 —— 否则"放弃那次"
+   *     会污染最好成绩，趋势看起来像进步其实是脏数据。
+   *   3 同一天练两次 → **合并成一个点**（组数累加、最好一组取两次里更大的），
+   *     否则一个日期出现两个点，看起来像练了两天。
+   *   4 「最好一组」= 重量最大的那组，与 summary() 的 best（:607）完全同一个实现；
+   *     次数取**同一组**的次数（不是当天最多次数），两个口径各取各的但不混。
+   *     自重动作重量为 0 → top_weight = 0，由展示层决定怎么画，这里不替它编数。
+   *
+   * 纯读：不写任何表。返回按日期**倒序**（最近在前），limit 默认 8。
+   */
+  function exerciseTrend(store, memberId, exerciseId, opt) {
+    opt = opt || {};
+    if (!memberId || !exerciseId) return { ok: false, reason: 'bad_input', exerciseId: exerciseId, points: [] };
+    var cur = store.find('m_exercises', exerciseId);
+    var curVer = cur ? intOr(cur.version, 1) : 0;
+
+    var byDate = {};
+    store.all('m_sessions').forEach(function (s) {
+      if (s.member_id !== memberId || s.status !== 'completed') return;
+      var rows = setsOf(store, s.session_id).filter(function (r) { return r.exercise_id === exerciseId; });
+      if (!rows.length) return;
+      var k = String(s.session_date);
+      if (!byDate[k]) byDate[k] = { date: k, ids: [], rows: [] };
+      byDate[k].ids.push(s.session_id);
+      byDate[k].rows = byDate[k].rows.concat(rows);
+    });
+
+    var points = Object.keys(byDate).sort().map(function (k) {
+      var g = byDate[k];
+      var best = null, vol = 0;
+      g.rows.forEach(function (r) {
+        vol += numOr(r.weight) * intOr(r.reps);
+        if (!best || numOr(r.weight) > numOr(best.weight)) best = r;
+      });
+      g.ids.sort();
+      return {
+        date: k,
+        session_id: g.ids[g.ids.length - 1],
+        sessions: g.ids.length,
+        sets: g.rows.length,
+        top_weight: best ? numOr(best.weight) : 0,
+        top_reps: best ? intOr(best.reps) : 0,
+        volume: round1(vol),
+        /* 动作内容版本变过 → 前后不完全可比，展示层要提示（与 20 轮预填的版本守卫同约定） */
+        version_changed: curVer > 0 && !!best && intOr(best.exercise_version, 1) !== curVer
+      };
+    });
+    points.sort(function (a, b) { return String(b.date).localeCompare(String(a.date)); });
+    return {
+      ok: true,
+      exerciseId: exerciseId,
+      points: points.slice(0, intOr(opt.limit, 8))
+    };
+  }
+
+  /* ---------------------------------------------------------------- 日历（24 轮阶段 3） */
+
+  /** 日期 + N 天。本模块内只用于生成日历区间；与 xp.js 的 dateAdd 同算法，不引入新依赖 */
+  function addDays(dateStr, n) {
+    var m = String(dateStr).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) return '';
+    var d = new Date(+m[1], +m[2] - 1, +m[3]);
+    d.setDate(d.getDate() + n);
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+  }
+  /** 星期几：1=周一 … 7=周日（与 m_plan_items.day_of_week 同一编码） */
+  function weekdayOf(dateStr) {
+    var m = String(dateStr).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) return 0;
+    var w = new Date(+m[1], +m[2] - 1, +m[3]).getDay();
+    return w === 0 ? 7 : w;
+  }
+  /** 某日期所在月的首尾（'YYYY-MM-DD' → {from,to}） */
+  function monthRange(dateStr) {
+    var m = String(dateStr).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) return null;
+    var lastDay = new Date(+m[1], +m[2], 0);   /* 下月第 0 天 = 本月最后一天 */
+    return {
+      from: m[1] + '-' + m[2] + '-01',
+      to: lastDay.getFullYear() + '-' + pad(lastDay.getMonth() + 1) + '-' + pad(lastDay.getDate())
+    };
+  }
+
+  /**
+   * calendar —— 训练日历（24 轮阶段 3）。
+   *
+   * **只标真实完成的训练**：status === 'completed' 且按 session_date 落格。
+   * 计划日（m_plan_items.day_of_week）不参与——排了没练的日子不该看起来像练过；
+   * 放弃（abandoned）与进行中（in_progress）也不算，理由同 exerciseTrend。
+   * 归属日期仍用 session_date（开始日），与既有统计同一口径。
+   *
+   * 返回区间内**每一天**（含没练的日子），让展示层能画完整的月历网格，
+   * 而不是只给有训练的那几天——否则用户看不出"这个月哪些天是空的"。
+   * 纯读：不写任何表。
+   */
+  function calendar(store, memberId, opt) {
+    opt = opt || {};
+    if (!memberId) return { ok: false, reason: 'no_actor', from: '', to: '', days: [] };
+    var from = opt.from, to = opt.to;
+    if (!from || !to) {
+      var mr = monthRange(opt.month ? String(opt.month) + '-01' : todayStr());
+      if (!mr) return { ok: false, reason: 'bad_date', from: '', to: '', days: [] };
+      from = mr.from; to = mr.to;
+    }
+    var agg = {};
+    store.all('m_sessions').forEach(function (s) {
+      if (s.member_id !== memberId || s.status !== 'completed') return;
+      var k = String(s.session_date);
+      if (k < from || k > to) return;
+      if (!agg[k]) agg[k] = { sessions: 0, sets: 0, volume: 0 };
+      agg[k].sessions++;
+      var rows = setsOf(store, s.session_id);
+      agg[k].sets += rows.length;
+      rows.forEach(function (r) { agg[k].volume += numOr(r.weight) * intOr(r.reps); });
+    });
+
+    var days = [], cur = from, guard = 0;
+    while (cur && String(cur) <= String(to) && guard < 400) {
+      var a = agg[cur] || { sessions: 0, sets: 0, volume: 0 };
+      days.push({
+        date: cur,
+        weekday: weekdayOf(cur),
+        sessions: a.sessions,
+        sets: a.sets,
+        volume: round1(a.volume)
+      });
+      cur = addDays(cur, 1);
+      guard++;
+    }
+    var trained = days.filter(function (d) { return d.sessions > 0; });
+    return {
+      ok: true,
+      from: from,
+      to: to,
+      days: days,
+      trainedDays: trained.length,
+      totalSessions: trained.reduce(function (a, d) { return a + d.sessions; }, 0)
+    };
+  }
+
+  /**
    * summary(store, memberId, sessionId) —— 结算卡需要的全部数字（02 §E.4）。
    * 刻意只从 m_sessions / m_sets / plan_snapshot 现算，不做任何缓存，
    * 保证「结算卡上的每一项都能被重新算出来」这条硬要求成立。
@@ -797,6 +1010,9 @@
     isLive: isLive,
     setsOf: setsOf,
     lastSetsFor: lastSetsFor,
+    lastSessionItems: lastSessionItems,
+    exerciseTrend: exerciseTrend,
+    calendar: calendar,
     summary: summary,
     history: history,
     netSeconds: netSeconds,

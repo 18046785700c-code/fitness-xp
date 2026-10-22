@@ -1302,6 +1302,25 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
   transition: width var(--m-ease-slow);
 }
 
+/* 训练日历（24 轮阶段 3）：7 列网格，只标真实完成的日期。
+   刻意不做成图表、不引库；训练日比普通日子只多一层紫底 + 右下角次数，不抢列表的戏。 */
+.m-cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; margin-top: 10px; }
+.m-cal-h {
+  font-size: var(--m-fs-xs); color: var(--m-sub-ink);
+  text-align: center; padding: 2px 0;
+}
+.m-cal-d {
+  position: relative; display: flex; align-items: center; justify-content: center;
+  height: 34px; border-radius: 8px; border: 1px solid var(--m-border);
+  background: #fff; font-size: var(--m-fs-sm); color: var(--m-sub-ink);
+}
+.m-cal-empty { border: 0; background: transparent; }
+.m-cal-d-on { background: #F3EFFB; border-color: var(--m-purple); color: var(--m-ink); font-weight: 600; }
+.m-cal-d-on > i {
+  position: absolute; right: 4px; bottom: 1px;
+  font-style: normal; font-size: 10px; color: var(--m-purple);
+}
+
 .m-airow { margin-top: 10px; }
 .m-airow b { display: block; font-size: var(--m-fs-sm); margin-bottom: 4px; }
 .m-ailist { margin: 0; padding-left: 18px; font-size: var(--m-fs-sm); color: var(--m-sub); }
