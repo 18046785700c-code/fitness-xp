@@ -1327,3 +1327,38 @@ body:has(.m-tabbar:not([hidden])) .m-wrap { padding-bottom: 78px; }
 .m-ailist li { margin-bottom: 3px; }
 /* 「明确不算什么」这一项必须是负向、可读的深黄字，不能做浅色弱化 */
 .m-ailist-no li { color: var(--m-warn-ink); }
+
+/* ---------- 手机端聚焦不放大（iOS Safari / WebView） ----------
+ * 现象：点输入框时整个页面被放大，收起键盘后比例不回正。
+ * 根因：iOS 对「计算 font-size < 16px 的可编辑控件」会自动缩放，
+ *       与 viewport 设置无关（所以不用 maximum-scale=1 / user-scalable=no ——
+ *       那样会连用户主动双指缩放也一起禁掉，伤可用性）。
+ * 做法：所有会拉起键盘的控件，计算字号一律 ≥ 16px。
+ *       正文仍是 15px，只有输入控件变大 —— 这是全站唯一能不牺牲缩放自由的修法。
+ *
+ * 作用域用 body 而不是 #mApp：页面主体在 #mApp 里，但「自建动作」这类弹窗是
+ *   document.body.insertAdjacentHTML 挂到 <body> 上的（挂 #mApp 会被 render() 覆写吞掉，
+ *   见 member.js 的注释），只写 #mApp 会把弹窗里的 10 个输入框漏掉。
+ *   本文件只被会员端（含单文件版）加载，body 作用域不会碰到教练端。
+ * 优先级靠 body + 属性选择器压过前面这几处更小的字号，是有意的：
+ *   .m-fld input/select/textarea 15px（font:inherit 吃到 body 的 15px）
+ *   .m-filters select/input     13px（--m-fs-sm）
+ *   .m-expick-q                 13px（--m-fs-sm）
+ * 例外（不覆盖、也不需要覆盖）：
+ *   .m-form-row input 18px !important —— 训练页重量/次数刻意更大，!important 优先，保留。
+ *   .m-iedit-num 16px —— 本来就已达标。
+ * 复选框/单选/滑块不拉起键盘，且改字号会影响它们的绘制尺寸，故排除。
+ * 以后新增输入控件（含以后新加的弹窗）也自动落在这一条里，不用再逐处补。
+ *
+ * select / textarea 后面的 :not([type=...]) 看着多余（它们本来没有 type 属性，恒匹配），
+ * 是刻意留的：光靠 "body select" 优先级只有 (0,0,2)，压不过带类名的 ".m-fld select" (0,1,1)，
+ * 实测 select 会掉回 15px。加上属性选择器后统一抬到 (0,3,2)，三者才都生效。
+ */
+body input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+body select:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+body textarea:not([type="checkbox"]):not([type="radio"]):not([type="range"]) {
+  font-size: 16px;
+}
+/* 筛选区两列布局下，字号 13px → 16px 会吃掉横向空间：把左右内边距从 10px 收到 8px，
+   给文字腾回一点余量。字号本身不降到 16 以下 —— 降到 15 就会重新触发放大。 */
+.m-filters select, .m-filters input { padding: 10px 8px; }
