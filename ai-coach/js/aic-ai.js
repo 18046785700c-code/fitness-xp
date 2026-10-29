@@ -125,11 +125,15 @@
   function createAdapter(opts) {
     opts = opts || {};
     var storage = opts.storage || null;
+    /* ⚠ CONFIG_KEY 必须在使用 readConfig(storage) 之前完成赋值（2026-10-24 修）。
+       原写法把它放在下面第 6 行 —— var 提升让它在那一刻只是 undefined，
+       于是 readConfig 里 st.getItem(undefined) 永远取不到东西、返回 null，
+       适配器每次新建（＝刷新页面）都退回默认禁用态：会员配好的代理地址写进去了却读不出来，
+       界面显示「尚未启用」，而存储里明明躺着那份配置。 */
+    var CONFIG_KEY = 'fxp-ai-coach.adapter';
     var cfg = opts.config || readConfig(storage) || defaultConfig();
     var fetchImpl = opts.fetchImpl || (typeof fetch === 'function' ? fetch : null);
     var now = opts.now || function () { return Date.now(); };
-
-    var CONFIG_KEY = 'fxp-ai-coach.adapter';
 
     function defaultConfig() {
       return { enabled: false, endpoint: '', model: DEFAULT_MODEL, timeoutMs: 15000 };

@@ -259,6 +259,42 @@
       catch (e) { return { ok: false, reason: 'storage_error' }; }
     }
 
+    /**
+     * rawText()：只读原始快照文本，不解析、不改内存状态。（P0-1）
+     * 用途：数据处于「读得到但解析/校验失败」的状态时，把原始字节原样交还 caller，
+     * 交由用户在本地留存，供后续人工修复。整份丢弃前必须先拿到它——一旦被人写库覆盖就再也找不回。
+     * 返回 {ok:true, text}（全新用户 text 为空串）/ {ok:false, reason:'storage_error'}
+     */
+    function rawText() {
+      try { return { ok: true, text: storage.getItem(KEY_) }; }
+      catch (e) { return { ok: false, reason: 'storage_error' }; }
+    }
+
+    /**
+     * diagnose()：只读体检，不改内存状态、不写库。（P0-1）
+     * status 四态，供 UI 决定走向：
+     *   'empty'      存储键不存在或为空 → 全新用户，允许正常注册/补全，**不是数据损坏**
+     *   'ok'         可读且结构合法
+     *   'broken'     读到了内容，但 JSON 解析失败或快照结构校验不过 → **必须进入保护状态**，禁止任何写库
+     *   'unreadable' 连 storage 都读不了（隐私模式/被禁用/配额策略）
+     * bytes：原始文本长度（unreadable 记 0）
+     * 与 load() 的区别：load() 会 reset() 内存并按整体采纳/整体丢弃原则覆盖表；
+     * diagnose() 纯粹观察，所以可以在决定是否允许写库之前安全地调用。
+     */
+    function diagnose() {
+      var raw = rawText();
+      if (!raw.ok) return { status: 'unreadable', reason: 'storage_error', bytes: 0 };
+      var text = raw.text;
+      var bytes = (text === null || typeof text === 'undefined') ? 0 : String(text).length;
+      if (!text) return { status: 'empty', reason: 'empty', bytes: 0 };
+      var s;
+      try { s = JSON.parse(text); }
+      catch (e) { return { status: 'broken', reason: 'corrupt_json', bytes: bytes }; }
+      var chk = MSCH.validateMemberSnapshot(s);
+      if (!chk.ok) return { status: 'broken', reason: chk.reason, bytes: bytes };
+      return { status: 'ok', reason: 'ok', bytes: bytes };
+    }
+
     function reset() {
       TABLES.forEach(function (t) { tables[t] = []; byId[t] = {}; });
     }
@@ -329,6 +365,8 @@
       assertOwner: assertOwner, resolveOwner: resolveOwner,
       save: save, load: load, clear: clear, clearAll: clearAll, reset: reset,
       snapshot: snapshot,
+      /* P0-1：rawText/diagnose 都是纯读，不改内存不写库；UI 用它们判定是否进入数据保护状态 */
+      rawText: rawText, diagnose: diagnose,
       exportAll: exportAll, importText: importText
     };
   }

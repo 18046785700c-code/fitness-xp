@@ -313,6 +313,13 @@ code {
    ================================================================ */
 .m-btn-row { display: flex; flex-wrap: wrap; gap: 10px; }
 
+/* 「标了 hidden 却照样显示」的坑（2026-10-24）：
+   .m-btn 的 display:inline-flex（0,1,0）压过浏览器 UA 的 [hidden]{display:none}（0,1,0 但来自 UA，
+   作者样式胜出），于是 <button class="m-btn" hidden> 依然完完整整地出现在页面上。
+   曾经就有一个「导入 JSON 备份」按钮这样显示出来，点了毫无反应（它根本没有事件绑定）。
+   这里用 (0,2,0) 的 .m-btn[hidden] 压回去，让 hidden 属性对按钮重新生效。 */
+.m-btn[hidden] { display: none; }
+
 .m-btn {
   display: inline-flex;
   align-items: center;

@@ -333,6 +333,13 @@ code {
    ================================================================ */
 .m-btn-row { display: flex; flex-wrap: wrap; gap: 10px; }
 
+/* 「标了 hidden 却照样显示」的坑（2026-10-24）：
+   .m-btn 的 display:inline-flex（0,1,0）压过浏览器 UA 的 [hidden]{display:none}（0,1,0 但来自 UA，
+   作者样式胜出），于是 <button class="m-btn" hidden> 依然完完整整地出现在页面上。
+   曾经就有一个「导入 JSON 备份」按钮这样显示出来，点了毫无反应（它根本没有事件绑定）。
+   这里用 (0,2,0) 的 .m-btn[hidden] 压回去，让 hidden 属性对按钮重新生效。 */
+.m-btn[hidden] { display: none; }
+
 .m-btn {
   display: inline-flex;
   align-items: center;
@@ -3357,6 +3364,42 @@ body textarea:not([type="checkbox"]):not([type="radio"]):not([type="range"]) {
       catch (e) { return { ok: false, reason: 'storage_error' }; }
     }
 
+    /**
+     * rawText()：只读原始快照文本，不解析、不改内存状态。（P0-1）
+     * 用途：数据处于「读得到但解析/校验失败」的状态时，把原始字节原样交还 caller，
+     * 交由用户在本地留存，供后续人工修复。整份丢弃前必须先拿到它——一旦被人写库覆盖就再也找不回。
+     * 返回 {ok:true, text}（全新用户 text 为空串）/ {ok:false, reason:'storage_error'}
+     */
+    function rawText() {
+      try { return { ok: true, text: storage.getItem(KEY_) }; }
+      catch (e) { return { ok: false, reason: 'storage_error' }; }
+    }
+
+    /**
+     * diagnose()：只读体检，不改内存状态、不写库。（P0-1）
+     * status 四态，供 UI 决定走向：
+     *   'empty'      存储键不存在或为空 → 全新用户，允许正常注册/补全，**不是数据损坏**
+     *   'ok'         可读且结构合法
+     *   'broken'     读到了内容，但 JSON 解析失败或快照结构校验不过 → **必须进入保护状态**，禁止任何写库
+     *   'unreadable' 连 storage 都读不了（隐私模式/被禁用/配额策略）
+     * bytes：原始文本长度（unreadable 记 0）
+     * 与 load() 的区别：load() 会 reset() 内存并按整体采纳/整体丢弃原则覆盖表；
+     * diagnose() 纯粹观察，所以可以在决定是否允许写库之前安全地调用。
+     */
+    function diagnose() {
+      var raw = rawText();
+      if (!raw.ok) return { status: 'unreadable', reason: 'storage_error', bytes: 0 };
+      var text = raw.text;
+      var bytes = (text === null || typeof text === 'undefined') ? 0 : String(text).length;
+      if (!text) return { status: 'empty', reason: 'empty', bytes: 0 };
+      var s;
+      try { s = JSON.parse(text); }
+      catch (e) { return { status: 'broken', reason: 'corrupt_json', bytes: bytes }; }
+      var chk = MSCH.validateMemberSnapshot(s);
+      if (!chk.ok) return { status: 'broken', reason: chk.reason, bytes: bytes };
+      return { status: 'ok', reason: 'ok', bytes: bytes };
+    }
+
     function reset() {
       TABLES.forEach(function (t) { tables[t] = []; byId[t] = {}; });
     }
@@ -3427,6 +3470,8 @@ body textarea:not([type="checkbox"]):not([type="radio"]):not([type="range"]) {
       assertOwner: assertOwner, resolveOwner: resolveOwner,
       save: save, load: load, clear: clear, clearAll: clearAll, reset: reset,
       snapshot: snapshot,
+      /* P0-1：rawText/diagnose 都是纯读，不改内存不写库；UI 用它们判定是否进入数据保护状态 */
+      rawText: rawText, diagnose: diagnose,
       exportAll: exportAll, importText: importText
     };
   }
@@ -9221,6 +9266,61 @@ body textarea:not([type="checkbox"]):not([type="radio"]):not([type="range"]) {
       .sort(function (a, b) { return String(a.corrected_at).localeCompare(String(b.corrected_at)); });
   }
 
+  /* ---------------------------------------------------------------- 时长口径的可解释性（P1-2） */
+
+  /* duration_sec 的口径是「结束时刻 − 开始时刻 − 暂停时长」。
+     本端没有任何 visibilitychange / beforeunload 钩子，所以训练途中直接关掉页面、
+     或切走几小时再回来点结束，中间那段离线时间会被整段算进来（22 轮探针实测 1 组 → 6.2 小时）。
+
+     这里刻意**不改 duration_sec**：那个口径是有意为之、且被趋势与历史多处依赖，改它等于改一次
+     训练记录的事实，还会连带影响 weekly 统计。改为提供一个纯读判断，让页面把话说清楚。
+
+     阈值取「最后一组到结束之间的空档」和「平均每组耗时」两个独立角度，任一超界即视为可疑。
+     数字是经验值：一次正常训练中，组间休息加收尾极少超过 15 分钟，单组平均也很难到 10 分钟。 */
+  var TRAIL_GAP_LIMIT_SEC = 15 * 60;
+  var PER_SET_LIMIT_SEC = 10 * 60;
+
+  /**
+   * durationCaveat —— 纯读，零写库。判断已结束会话的时长是否可能包含未暂停的空档。
+   * 返回 {suspect, reason, gapSec, perSetSec, durationSec, setCount}
+   *   reason: ok / trailing_gap / low_density / not_completed / no_sets / unavailable
+   */
+  function durationCaveat(store, memberId, sessionId) {
+    var g = guard(store, memberId, sessionId);
+    var base = { suspect: false, reason: 'unavailable', gapSec: 0, perSetSec: 0, durationSec: 0, setCount: 0 };
+    if (!g.ok) return base;
+    var s = g.session;
+    var dur = intOr(s.duration_sec, 0);
+    var out = {
+      suspect: false, reason: 'ok', gapSec: 0,
+      perSetSec: 0, durationSec: dur, setCount: 0
+    };
+    if (s.status !== 'completed') { out.reason = 'not_completed'; return out; }
+    if (!isFinite(toMs(s.ended_at))) { out.reason = 'not_completed'; return out; }
+
+    var sets = setsOf(store, sessionId);
+    out.setCount = sets.length;
+    if (!sets.length) { out.reason = 'no_sets'; return out; }
+
+    var last = null;
+    sets.forEach(function (r) {
+      var t = toMs(r.logged_at);
+      if (isFinite(t) && (last === null || t > last)) last = t;
+    });
+    if (last === null) { out.reason = 'no_sets'; return out; }
+
+    var gap = Math.floor((toMs(s.ended_at) - last) / 1000);
+    out.gapSec = gap > 0 ? gap : 0;
+    out.perSetSec = Math.floor(dur / sets.length);
+
+    if (out.gapSec > TRAIL_GAP_LIMIT_SEC) {
+      out.suspect = true; out.reason = 'trailing_gap';
+    } else if (out.perSetSec > PER_SET_LIMIT_SEC) {
+      out.suspect = true; out.reason = 'low_density';
+    }
+    return out;
+  }
+
   /* ---------------------------------------------------------------- 导出 */
 
   return {
@@ -9248,6 +9348,7 @@ body textarea:not([type="checkbox"]):not([type="radio"]):not([type="range"]) {
     exerciseTrend: exerciseTrend,
     calendar: calendar,
     summary: summary,
+    durationCaveat: durationCaveat,
     history: history,
     netSeconds: netSeconds,
 
@@ -9429,11 +9530,29 @@ body textarea:not([type="checkbox"]):not([type="radio"]):not([type="range"]) {
     if (!m) return NaN;
     return new Date(+m[1], +m[2] - 1, +m[3], +(m[4] || 0), +(m[5] || 0), +(m[6] || 0)).getTime();
   }
+  /**
+   * dateAdd(dateStr, n) —— 日期加减天数（n 可为负）。
+   *
+   * 必须**按日历**加减，不能用 `ms + n × 86400000`。
+   * 原因（2026-10-28 实测）：夏令时切换那天只有 23 小时，毫秒运算会少走一小时，
+   * 于是「周一 +7 天」算出的是周日 —— 2026-10-26 +7 = 2026-11-01 而不是 2026-11-02。
+   * 这不是显示偏差：nextWeek 因此永远匹配不上任何以周一为 week_start 的计划，
+   * 高级容量调整只能回落到本周（pickCapacityWeek 的兜底），"作用周"与会员看到的对不上。
+   * 无夏令时的时区（如 Asia/Shanghai）全年不出错，所以这个缺陷只在部分用户的日历上发作，
+   * 也正因如此更该按日历算 —— 同一个结果不该取决于用户在哪。
+   * 与 PLAN.addDays 保持同一口径，测试见 member-growth-test.js K 节。
+   */
   function dateAdd(dateStr, n) {
     var ms = toMs(dateStr);
     if (!isFinite(ms)) return dateStr;
-    var d = new Date(ms + n * 86400000);
-    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+    var k = typeof n === 'number' ? n : parseInt(n, 10);
+    if (!isFinite(k) || isNaN(k)) k = 0;
+    k = Math.round(k);
+    var d = new Date(ms);
+    /* 日历运算：把「日」交给 Date 构造器去进位，小时及以下原样带过去 */
+    var r = new Date(d.getFullYear(), d.getMonth(), d.getDate() + k,
+      d.getHours(), d.getMinutes(), d.getSeconds());
+    return r.getFullYear() + '-' + pad(r.getMonth() + 1) + '-' + pad(r.getDate());
   }
   function diffDays(a, b) {  /* b - a，单位天 */
     var ma = toMs(a), mb = toMs(b);
@@ -12773,11 +12892,19 @@ body textarea:not([type="checkbox"]):not([type="radio"]):not([type="range"]) {
       measurable: ['下蹲幅度（最小膝屈角）', '单次节奏时长', '左右膝角差异', '侧面视角下的躯干前倾变化'],
       notMeasurable: ['膝关节内旋/内扣的真实三维角度', '足底压力分布', '脊柱实际屈曲角度', '负重重量'],
       limitations: [
-        '单一二维视角不是三维测量：正面视角下"深度"会被压缩，不可作为深度结论',
+        /* 措辞必须和实现一致（2026-10-24 纠偏）：
+           旧文案说「正面视角下深度…不可作为深度结论」，但代码并不含这条把关——
+           depth 维度在关键点可见时永远会给分，不会因为正对镜头就标记「无法评估」。
+           会员可能据此以为系统会自动拒绝计算，于是正对着手机拿一个偏低的深度分还当真。
+           改成把「当前版本仍会给分、但不可信」说清楚，把判断力交还给人。 */
+        '单一二维视角不是三维测量：正面站位时画面深度被压缩，而当前版本仍会按膝屈角给出一个深度分 —— 该分数此时不可信，请按提示侧站后再看深度（系统不会自动判定为无法评估）',
         '深度以膝屈角近似，不等于髋关节实际屈曲角度',
         '穿着宽松、被器械或他人遮挡时会明显掉点'
       ],
-      notes: '本动作是本原型中唯一经过完整合成序列 + 假摄像头端到端验证的动作'
+      /* 有没有跑过真实人体是能力边界里最关键的一条，不能让「通过端到端测试」掩盖它。 */
+      notes: '本动作是本原型中唯一走过完整合成序列 + 模拟摄像头端到端验证的动作；'
+        + '尚未在真实摄像头下针对不同体型、穿着与光照环境验证识别准确度，'
+        + '因此分数用于自身对照与趋势参考，请以身体感受和专业教练判断为准。'
     }
   });
 
@@ -13404,6 +13531,17 @@ body textarea:not([type="checkbox"]):not([type="radio"]):not([type="range"]) {
   var ctx = { member_id: '', name: '', verified: false };
   var SS_KEY = 'fxp-member-session';
 
+  /* ---------------------------------------------------------------
+     数据保护状态（P0-1，2026-10-24）
+     非 null 时整个会员端进入「只读保护」：路由锁定到 #guard，禁止任何写库。
+     触发条件只有两个：本机快照读得到但解析/校验失败（broken），
+     或本机存储根本读不了（unreadable）。全新用户（empty）不会触发。
+     背景：落盘是整库单键覆盖写。旧版本在数据损坏时什么都不说，
+     直接按「没有会员 → 去注册」处理，随后的一次写盘就把损坏数据整库覆盖——
+     用户听到的是沉默，丢掉的是全部历史。保护态把决策权强制交回给用户。
+     --------------------------------------------------------------- */
+  var dataGuard = null;
+
   /* ---------------------------------------------------------------- 基础工具 */
 
   function $(id) { return document.getElementById(id); }
@@ -13563,6 +13701,11 @@ body textarea:not([type="checkbox"]):not([type="radio"]):not([type="range"]) {
 
   function targetRoute() {
     var r = parseHash();
+    /* 规则 0（2026-10-24 P0-1）：数据保护态优先于一切，包括「#register 永远可达」。
+       这不是死锁——保护页自身提供了「下载原始数据」与「确认后重建」两个出口。
+       相反，让注册继续可达，才是真正不可逆的那条路：注册后的第一次写盘会整库覆盖损坏数据。
+       仅在 dataGuard 非 null 时生效，healthy/empty 路径零行为差异。 */
+    if (dataGuard) return { route: 'guard', id: '', q: r.q };
     if (KNOWN.indexOf(r.route) < 0) return { route: 'home', id: '', q: r.q };
     /* 规则 2：#register 永远可达，否则新用户被死锁 */
     if (r.route === 'register') return r;
@@ -15531,6 +15674,12 @@ body textarea:not([type="checkbox"]):not([type="radio"]):not([type="range"]) {
       + '<button class="m-btn" id="btnExportCsv">导出全部 CSV（19 个）</button>'
       + '<button class="m-btn" id="btnExportJson">导出单文件备份（JSON）</button>'
       + '</div><div class="m-hint" id="mExportMsg"></div>'
+      /* 规则 5（2026-10-24）：导出只能叫「备份/存档」，不能让人以为它能在本应用里点回来恢复。
+         当前单文件 JSON 是一个 19 表整库快照，而导入链路只认「一个文件 = 一张表」的 CSV，
+         拿它去走「选择文件」会被判 unknown_table —— 按钮存在时，这条路径是死路。
+         与其保留一个点下去没有反应的入口，不如先把话说清楚。（真正支持恢复前不重开此入口） */
+      + '<p class="m-p" id="exportCaveat">这两种文件都是<b>导出存档</b>，用于留存与人工核对；'
+      + '当前版本<b>不支持把 JSON 备份点回本应用恢复</b>，请不要把它当作唯一的备份方式。</p>'
       + '</section>'
 
       + '<section class="m-card m-card-purple">'
@@ -15539,8 +15688,8 @@ body textarea:not([type="checkbox"]):not([type="radio"]):not([type="range"]) {
       + '<div class="m-btn-row">'
       + '<input type="file" id="fileInput" accept=".csv,text/csv" multiple hidden>'
       + '<button class="m-btn" id="btnPick">选择 CSV 文件</button>'
-      + '<button class="m-btn m-btn-ghost" id="btnImportJson" hidden>导入 JSON 备份</button>'
       + '</div><div class="m-hint" id="mImportMsg"></div>'
+      + '<p class="m-p">只接受 CSV；导入前请留意——同一自身份按 ID 覆盖写，<b>无法撤销</b>。</p>'
       + '</section>'
 
       + '<section class="m-card">'
@@ -16919,6 +17068,11 @@ body textarea:not([type="checkbox"]):not([type="radio"]):not([type="range"]) {
       + sumCell('计划完成度', sm.completion_rate + '%')
       + sumCell('训练感受', feelingName(sm.feeling))
       + '</div>'
+      /* P1-2（2026-10-24）：训练时长可能包含「未暂停的空档」——本端没有离开页面的钩子，
+         中途关页或长时间切走再回来点结束，那段离线时间会被算进 duration_sec。
+         这里不动 duration_sec（口径被趋势/历史依赖），改为在展示时如实说一句。
+         提示内容由领域层 SES.durationCaveat() 判定，页面只负责措辞。 */
+      + durationCaveatHtml(s.session_id)
       /* 24 轮阶段 0：单位从 kg 改成 kg·次（容量 = Σ(重量×次数)，不是重量本身），
          并把这个口径的**局限**当场说清——自重动作重量按 0 计，
          只练自重时总容量就是 0，那不是"没练"，是这个口径量不出自重的工作量。
@@ -17763,6 +17917,131 @@ body textarea:not([type="checkbox"]):not([type="radio"]):not([type="range"]) {
       + '</div>';
   }
 
+  /* 时长口径提示（P1-2）：只改措辞、不改数字。会话没问题时返回空串。
+     时长若含离线空档，会员会看到一个明显荒唐的数字（例如 6 小时）却不知道为什么；
+     与其默默显示，不如把「这个数字包含了没暂停的空档」讲明白，也顺带教会下一次该怎么操作。 */
+  function durationCaveatHtml(sessionId) {
+    if (!store || !ctx.verified) return '';
+    var c = SES.durationCaveat(store, ctx.member_id, sessionId);
+    if (!c || !c.suspect) return '';
+    var gapMin = Math.floor(c.gapSec / 60);
+    var durMin = Math.floor(c.durationSec / 60);
+    return '<p class="m-hint">这次最后一组之后还有约 ' + gapMin
+      + ' 分钟才点击结束（总时长记为 ' + durMin
+      + ' 分钟）—— 这中间没有按暂停，所以被算进了训练时长。实际训练时间通常更短；'
+      + '下次离开前点一次「暂停」，时长就会准。</p>';
+  }
+
+  /* ---------------------------------------------------------------- 页面：数据保护（P0-1） */
+
+  /* reason → 会员能听懂的话。领域层给的是机器原因码，这里翻译成阻塞性说明。 */
+  function guardReasonText(reason) {
+    if (reason === 'corrupt_json') return '内容已经不是完整的 JSON（可能被别的写入截断，或被外力改动）';
+    if (reason === 'storage_error') return '浏览器拒绝读取本机存储（常见于隐私模式，或站点存储被禁用）';
+    if (reason === 'version_mismatch') return '数据版本与应用不一致';
+    return '快照结构校验未通过（' + reason + '）';
+  }
+
+  function pageGuard() {
+    var g = dataGuard || { status: 'broken', reason: 'unknown', bytes: 0 };
+    var broken = g.status === 'broken';
+    var bytesLine = broken
+      ? '<p class="m-p">这份数据现在读不出来，<b>但它还在你的设备上，共 ' + g.bytes
+        + ' 个字节</b>。为避免它被人覆盖，已<b>暂停全部自动写入</b> —— 在下面做出选择之前，不会有任何人改动它。</p>'
+      : '<p class="m-p">这会让训练记录无法保存。关闭隐私模式、或允许本站存储后，一般就能恢复。</p>';
+    return ''
+      + '<section class="m-card m-card-orange">'
+      + '<div class="m-card-h"><h2>本机数据保护</h2>'
+      + '<span class="m-pill">' + esc(MST.KEY) + '</span></div>'
+      + '<p class="m-p">读取本机训练数据时发现：<b>' + esc(guardReasonText(g.reason)) + '</b>。</p>'
+      + bytesLine
+      + '<ul class="m-list">'
+      + '<li>应用<b>不会自动删除</b>这份数据，也不会替你决定要不要重建</li>'
+      + '<li>训练、注册等入口暂时不可用 —— 因为它们都会产生写库，而写库会覆盖掉它</li>'
+      + '<li>数据只存在这台设备的这个浏览器里，清理浏览器数据同样会清掉它</li>'
+      + '</ul>'
+      + '<div class="m-btn-row">'
+      + (broken ? '<button class="m-btn" id="btnGuardDownload">下载原始数据副本</button>' : '')
+      + '<button class="m-btn m-btn-ghost" id="btnGuardRetry">重新读取</button>'
+      + '</div><div class="m-hint" id="guardMsg"></div>'
+      + '</section>'
+
+      + '<section class="m-card">'
+      + '<div class="m-card-h"><h2>如果你不再需要这份数据</h2></div>'
+      + '<p class="m-p">只有这一步会删除它，<b>删除后无法恢复</b>。建议先下载副本再决定。</p>'
+      + '<div class="m-btn-row">'
+      + '<button class="m-btn m-btn-danger" id="btnGuardReset">放弃这份数据，重新开始</button>'
+      + '</div>'
+      + '<div id="guardConfirm" style="display:none">'
+      + '<div class="m-hint m-err" id="guardConfirmText">确认要删除这台设备上 '
+      + (broken ? g.bytes + ' 个字节的' : '') + '无法读取的数据吗？此操作不可恢复。</div>'
+      + '<div class="m-btn-row">'
+      + '<button class="m-btn m-btn-danger" id="btnGuardConfirmYes">确认删除并重新开始</button>'
+      + '<button class="m-btn m-btn-ghost" id="btnGuardCancel">取消</button>'
+      + '</div></div>'
+      + '</section>';
+  }
+
+  function guardMsg(cls, text) {
+    var el = $('guardMsg');
+    if (!el) return;
+    el.className = 'm-hint ' + (cls || '');
+    el.textContent = text;
+  }
+
+  function bindGuard() {
+    var txtEl = $('mStoreState');
+    if (txtEl) txtEl.textContent = '数据保护中 · 未写入本机存储';
+
+    /* 下载副本：保存原始字节（哪怕是损坏的），交给会员本地留存或人工修复。
+       这是「安全恢复路径」的第一段 —— 有了它，后面无论发生什么都不会彻底失去。 */
+    var dl = $('btnGuardDownload');
+    if (dl) dl.addEventListener('click', function () {
+      var r = store.rawText();
+      if (!r.ok) { guardMsg('m-err', '读取失败：本机存储现在不可访问，无法导出。'); return; }
+      var t = String(r.text || '');
+      if (!t.length) { guardMsg('m-warn', '本机已经没有数据了，可以直接重新开始。'); return; }
+      download('fxp-member-corrupt.txt', t);
+      guardMsg('m-ok', '已下载 ' + t.length + ' 个字节的原始副本（fxp-member-corrupt.txt），建议先别删它。');
+    });
+
+    var retry = $('btnGuardRetry');
+    if (retry) retry.addEventListener('click', function () {
+      /* 重新体检而不是盲信内存里的结论：用户可能在另一个标签页修好了存储。 */
+      var d = store.diagnose();
+      if (d.status === 'broken' || d.status === 'unreadable') {
+        dataGuard = d;
+        guardMsg('m-warn', '重新读取后仍是同样结果（' + d.reason + '）。');
+        return;
+      }
+      location.reload();
+    });
+
+    var rs = $('btnGuardReset');
+    if (rs) rs.addEventListener('click', function () {
+      var c = $('guardConfirm');
+      if (c) c.style.display = '';
+      guardMsg('m-warn', '还没删除。请先确认已不需要这份数据。');
+      rs.disabled = true;
+    });
+
+    var cancel = $('btnGuardCancel');
+    if (cancel) cancel.addEventListener('click', function () {
+      var c = $('guardConfirm');
+      if (c) c.style.display = 'none';
+      if (rs) rs.disabled = false;
+      guardMsg('', '已取消，数据没有被改动。');
+    });
+
+    var yes = $('btnGuardConfirmYes');
+    if (yes) yes.addEventListener('click', function () {
+      guardMsg('', '正在删除…');
+      var c = store.clear();
+      if (!c.ok) { guardMsg('m-err', '删除失败：本机存储不可写入，数据仍在（' + c.reason + '）。'); return; }
+      location.reload();
+    });
+  }
+
   /* ---------------------------------------------------------------- 渲染主循环 */
 
   function render() {
@@ -17778,6 +18057,17 @@ body textarea:not([type="checkbox"]):not([type="radio"]):not([type="range"]) {
     var want = '#' + r.route + (r.id ? '/' + r.id : '');
     if (r.route !== req.route || r.id !== req.id) {
       if (location.hash !== want) { location.hash = want; return; }
+    }
+
+    /* 数据保护态（P0-1）：整端只读。
+       必须在 ensureSeedLoaded() 之前 return —— 那是本端唯一的自动写盘点，
+       让它跑起来就等于替会员决定「这份损坏数据不要了」。
+       保护页本身不写库，唯一的删除动作藏在二次确认按钮后面。 */
+    if (dataGuard) {
+      app.innerHTML = pageGuard();
+      renderChrome();
+      bindGuard();
+      return;
     }
 
     /* 每次渲染都兜一次内置动作库：loadSeed 按 exercise_id 幂等，
@@ -17979,13 +18269,18 @@ body textarea:not([type="checkbox"]):not([type="radio"]):not([type="range"]) {
       coachMembers: function () { return IDN.readCoachMembers(localStorage).members; }
     });
     loadCtx();
-    var loaded = store.load();
-    if (loaded && loaded.ok) {
-      var lm = $('mLoadMsg');
+    store.load();
+    /* 读取结果必须被使用 —— 旧版本这里只写了 `var lm = $('mLoadMsg');` 一行废语句，
+       把「数据是否损坏」丢掉了，于是损坏按「没会员 → 去注册」处理，
+       紧跟其后的一次写盘就把原始数据整库覆盖。现在按诊断结果决定是否进入保护态。 */
+    var diag = store.diagnose();
+    if (diag.status === 'broken' || diag.status === 'unreadable') {
+      /* 保护态：整端只读，直到会员明确做出选择（下载副本 / 确认删除重建） */
+      dataGuard = diag;
+    } else {
+      /* empty 与 ok 都属于正常分支，行为与旧版本一致 */
+      ensureSeedLoaded();
     }
-    /* 应用初始化：无条件补全内置动作库（不再判断 count===0，老用户因此能拿到扩容后的新动作）。
-       loadSeed 幂等 → 已是全量时 added=0，不写盘、不提示。 */
-    ensureSeedLoaded();
 
     render();
 

@@ -164,11 +164,29 @@
     if (!m) return NaN;
     return new Date(+m[1], +m[2] - 1, +m[3], +(m[4] || 0), +(m[5] || 0), +(m[6] || 0)).getTime();
   }
+  /**
+   * dateAdd(dateStr, n) —— 日期加减天数（n 可为负）。
+   *
+   * 必须**按日历**加减，不能用 `ms + n × 86400000`。
+   * 原因（2026-10-28 实测）：夏令时切换那天只有 23 小时，毫秒运算会少走一小时，
+   * 于是「周一 +7 天」算出的是周日 —— 2026-10-26 +7 = 2026-11-01 而不是 2026-11-02。
+   * 这不是显示偏差：nextWeek 因此永远匹配不上任何以周一为 week_start 的计划，
+   * 高级容量调整只能回落到本周（pickCapacityWeek 的兜底），"作用周"与会员看到的对不上。
+   * 无夏令时的时区（如 Asia/Shanghai）全年不出错，所以这个缺陷只在部分用户的日历上发作，
+   * 也正因如此更该按日历算 —— 同一个结果不该取决于用户在哪。
+   * 与 PLAN.addDays 保持同一口径，测试见 member-growth-test.js K 节。
+   */
   function dateAdd(dateStr, n) {
     var ms = toMs(dateStr);
     if (!isFinite(ms)) return dateStr;
-    var d = new Date(ms + n * 86400000);
-    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+    var k = typeof n === 'number' ? n : parseInt(n, 10);
+    if (!isFinite(k) || isNaN(k)) k = 0;
+    k = Math.round(k);
+    var d = new Date(ms);
+    /* 日历运算：把「日」交给 Date 构造器去进位，小时及以下原样带过去 */
+    var r = new Date(d.getFullYear(), d.getMonth(), d.getDate() + k,
+      d.getHours(), d.getMinutes(), d.getSeconds());
+    return r.getFullYear() + '-' + pad(r.getMonth() + 1) + '-' + pad(r.getDate());
   }
   function diffDays(a, b) {  /* b - a，单位天 */
     var ma = toMs(a), mb = toMs(b);

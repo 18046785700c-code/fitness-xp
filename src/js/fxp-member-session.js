@@ -987,6 +987,61 @@
       .sort(function (a, b) { return String(a.corrected_at).localeCompare(String(b.corrected_at)); });
   }
 
+  /* ---------------------------------------------------------------- 时长口径的可解释性（P1-2） */
+
+  /* duration_sec 的口径是「结束时刻 − 开始时刻 − 暂停时长」。
+     本端没有任何 visibilitychange / beforeunload 钩子，所以训练途中直接关掉页面、
+     或切走几小时再回来点结束，中间那段离线时间会被整段算进来（22 轮探针实测 1 组 → 6.2 小时）。
+
+     这里刻意**不改 duration_sec**：那个口径是有意为之、且被趋势与历史多处依赖，改它等于改一次
+     训练记录的事实，还会连带影响 weekly 统计。改为提供一个纯读判断，让页面把话说清楚。
+
+     阈值取「最后一组到结束之间的空档」和「平均每组耗时」两个独立角度，任一超界即视为可疑。
+     数字是经验值：一次正常训练中，组间休息加收尾极少超过 15 分钟，单组平均也很难到 10 分钟。 */
+  var TRAIL_GAP_LIMIT_SEC = 15 * 60;
+  var PER_SET_LIMIT_SEC = 10 * 60;
+
+  /**
+   * durationCaveat —— 纯读，零写库。判断已结束会话的时长是否可能包含未暂停的空档。
+   * 返回 {suspect, reason, gapSec, perSetSec, durationSec, setCount}
+   *   reason: ok / trailing_gap / low_density / not_completed / no_sets / unavailable
+   */
+  function durationCaveat(store, memberId, sessionId) {
+    var g = guard(store, memberId, sessionId);
+    var base = { suspect: false, reason: 'unavailable', gapSec: 0, perSetSec: 0, durationSec: 0, setCount: 0 };
+    if (!g.ok) return base;
+    var s = g.session;
+    var dur = intOr(s.duration_sec, 0);
+    var out = {
+      suspect: false, reason: 'ok', gapSec: 0,
+      perSetSec: 0, durationSec: dur, setCount: 0
+    };
+    if (s.status !== 'completed') { out.reason = 'not_completed'; return out; }
+    if (!isFinite(toMs(s.ended_at))) { out.reason = 'not_completed'; return out; }
+
+    var sets = setsOf(store, sessionId);
+    out.setCount = sets.length;
+    if (!sets.length) { out.reason = 'no_sets'; return out; }
+
+    var last = null;
+    sets.forEach(function (r) {
+      var t = toMs(r.logged_at);
+      if (isFinite(t) && (last === null || t > last)) last = t;
+    });
+    if (last === null) { out.reason = 'no_sets'; return out; }
+
+    var gap = Math.floor((toMs(s.ended_at) - last) / 1000);
+    out.gapSec = gap > 0 ? gap : 0;
+    out.perSetSec = Math.floor(dur / sets.length);
+
+    if (out.gapSec > TRAIL_GAP_LIMIT_SEC) {
+      out.suspect = true; out.reason = 'trailing_gap';
+    } else if (out.perSetSec > PER_SET_LIMIT_SEC) {
+      out.suspect = true; out.reason = 'low_density';
+    }
+    return out;
+  }
+
   /* ---------------------------------------------------------------- 导出 */
 
   return {
@@ -1014,6 +1069,7 @@
     exerciseTrend: exerciseTrend,
     calendar: calendar,
     summary: summary,
+    durationCaveat: durationCaveat,
     history: history,
     netSeconds: netSeconds,
 
