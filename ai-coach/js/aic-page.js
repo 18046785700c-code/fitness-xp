@@ -90,6 +90,7 @@
     renderExercises();
     renderMonitor();
     renderMembers();
+    fillAISettings();   /* 先回填，再渲染状态：顺序反了会让「已配置」与空表单同时出现 */
     renderAIState();
     renderRecords();
     probeAndHint();
@@ -606,6 +607,17 @@
   }
 
   /* ==================== AI 复盘 ==================== */
+
+  /* 把已存配置回填到表单。只渲染状态是不够的：
+     输入框留空时，用户会以为「没保存成功」，再点一次保存就拿空地址把好配置覆盖成
+     misconfigured —— 这不是显示问题，是把一份可用配置弄坏了。 */
+  function fillAISettings() {
+    var c = adapter.getConfig ? adapter.getConfig() : null;
+    if (!c) return;
+    if (c.endpoint) els.inpEndpoint.value = c.endpoint;
+    if (c.model) els.inpModel.value = c.model;
+    els.chkAI.checked = !!c.enabled;
+  }
 
   function renderAIState() {
     var st = adapter.getStatus();
